@@ -1,8 +1,8 @@
 pub(crate) mod sidecar;
 mod tray;
 
+use tauri::{Emitter, Manager};
 use std::sync::Mutex;
-use tauri::Manager;
 use tauri_plugin_global_shortcut::ShortcutState;
 
 pub(crate) struct BackendState(pub(crate) Mutex<Option<tokio::process::Child>>);
@@ -38,9 +38,12 @@ async fn stop_backend(
     app: tauri::AppHandle,
     state: tauri::State<'_, BackendState>,
 ) -> Result<String, String> {
-    let mut guard = state.0.lock().unwrap();
-    if let Some(mut child) = guard.take() {
-        drop(guard); // 释放锁，避免在等待关闭期间持有锁
+    let child = {
+        let mut guard = state.0.lock().unwrap();
+        guard.take()
+    }; // guard dropped before any .await
+
+    if let Some(mut child) = child {
         sidecar::stop_spring_boot(&mut child).await.map_err(|e| e.to_string())?;
         tray::update_tray_icon(&app, false);
         Ok("stopped".to_string())

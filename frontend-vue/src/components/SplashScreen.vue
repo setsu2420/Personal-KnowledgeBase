@@ -16,8 +16,8 @@ const dots = ref('.')
 const startTime = ref(0)
 const TIMEOUT_MS = 30000 // 30 秒
 
-let dotsInterval: ReturnType<typeof setInterval> | null = null
-let timeoutTimer: ReturnType<typeof setTimeout> | null = null
+let dotsInterval: ReturnType<typeof setInterval> | undefined = undefined
+let timeoutTimer: ReturnType<typeof setTimeout> | undefined = undefined
 
 // 动态加载点动画
 const startDotsAnimation = () => {
@@ -29,7 +29,7 @@ const startDotsAnimation = () => {
 const clearDotsAnimation = () => {
   if (dotsInterval) {
     clearInterval(dotsInterval)
-    dotsInterval = null
+    dotsInterval = undefined
   }
 }
 

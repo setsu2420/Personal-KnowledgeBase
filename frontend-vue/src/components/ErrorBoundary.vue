@@ -57,7 +57,7 @@ function resetError() {
   renderKey.value++
 }
 
-async function autoRetryNetworkError(err: Error) {
+async function autoRetryNetworkError(_err: Error) {
   if (retryCount.value >= MAX_AUTO_RETRIES) {
     autoRetrying.value = false
     return

@@ -92,14 +92,15 @@ fn restart_backend(app: &AppHandle) {
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
         // 先优雅停止后端
-        {
+        let child = {
             let state: tauri::State<'_, BackendState> = app_handle.state();
             let mut guard = state.0.lock().unwrap();
-            if let Some(mut child) = guard.take() {
-                drop(guard); // 释放锁，避免在等待关闭期间持有锁
-                let _ = crate::sidecar::stop_spring_boot(&mut child).await;
-                println!("[tray] Backend stopped for restart");
-            }
+            guard.take()
+        }; // guard dropped before any .await
+
+        if let Some(mut child) = child {
+            let _ = crate::sidecar::stop_spring_boot(&mut child).await;
+            println!("[tray] Backend stopped for restart");
         }
 
         // 短暂等待后再启动
@@ -123,7 +124,7 @@ fn restart_backend(app: &AppHandle) {
 }
 
 /// 使用系统文件管理器打开数据目录
-fn open_data_directory(app: &AppHandle) {
+pub fn open_data_directory(app: &AppHandle) {
     match app.path().app_data_dir() {
         Ok(data_dir) => {
             let _ = std::fs::create_dir_all(&data_dir);
@@ -140,20 +141,10 @@ fn open_data_directory(app: &AppHandle) {
     }
 }
 
-/// 尝试加载警告状态图标，失败时回退到默认图标
-fn load_warning_icon(app: &AppHandle) -> Image<'static> {
-    // 尝试从 resource 目录加载警告图标
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        let warning_path = resource_dir.join("icons").join("icon-warning.png");
-        if warning_path.exists() {
-            if let Ok(img) = Image::from_path(warning_path) {
-                return img;
-            }
-        }
-    }
-
-    // 回退：使用默认图标（tauri.conf.json 中配置的图标）
+/// 加载警告状态图标，失败时回退到默认图标
+fn load_warning_icon(app: &AppHandle) -> Image<'_> {
+    // 使用默认图标
     app.default_window_icon()
         .cloned()
-        .expect("default window icon must be configured in tauri.conf.json")
+        .expect("default window icon should be configured in tauri.conf.json")
 }
