@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { reportError } from '../utils/errorBus'
 
 // 检测是否在 Tauri 桌面环境中运行
 const isTauri = '__TAURI_INTERNALS__' in window
@@ -42,6 +43,21 @@ api.interceptors.request.use((config) => {
   }
   return config
 })
+
+// 响应拦截器：捕获网络错误和 5xx 服务端错误，上报到 errorBus
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (!error.response) {
+      // 网络错误或请求超时
+      reportError(error, `网络请求失败: ${error.config?.url || 'unknown'}`)
+    } else if (error.response.status >= 500) {
+      // 服务端错误
+      reportError(error, `服务端错误 ${error.response.status}: ${error.config?.url || 'unknown'}`)
+    }
+    return Promise.reject(error)
+  }
+)
 
 // Projects (项目隔离 - 参考 llm_wiki WikiProject)
 export const getProjects = () => api.get('/projects')

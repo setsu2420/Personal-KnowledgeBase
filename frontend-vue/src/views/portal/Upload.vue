@@ -47,6 +47,12 @@
           </div>
         </el-form-item>
         <el-form-item label="上传文件">
+          <div v-if="isTauriEnv" style="margin-bottom: 8px;">
+            <el-button type="primary" plain @click="pickFiles">
+              <el-icon><FolderOpened /></el-icon> 选择文件（系统对话框）
+            </el-button>
+            <span v-if="files.length > 0" style="margin-left: 8px; color: #67C23A; font-size: 13px;">已选择 {{ files.length }} 个文件</span>
+          </div>
           <el-upload
             ref="uploadRef"
             :auto-upload="false"
@@ -93,10 +99,18 @@
 
 <script setup lang="ts">
 import { ref, reactive, watch } from 'vue'
-import { UploadFilled } from '@element-plus/icons-vue'
+import { UploadFilled, FolderOpened } from '@element-plus/icons-vue'
 import { uploadFile } from '../../api'
 import { ElMessage } from 'element-plus'
 import type { UploadFile } from 'element-plus'
+import { isTauri, openFileAsFiles, DOC_FILTERS, sendNotification } from '../../composables/useTauri'
+
+const isTauriEnv = isTauri()
+
+async function pickFiles() {
+  const selected = await openFileAsFiles({ multiple: true, filters: DOC_FILTERS })
+  files.value.push(...selected)
+}
 
 const form = reactive({
   categoryL1: '',
@@ -172,6 +186,7 @@ async function submitUpload() {
     const res = await uploadFile(formData, '/api/upload/batch')
     results.value = res.data.results || []
     ElMessage.success(`上传完成：共${res.data.total}个文件`)
+    sendNotification('文件上传完成', `成功处理 ${res.data.total} 个文件`)
   } catch (e: any) {
     ElMessage.error('上传失败: ' + e.message)
   }

@@ -1,0 +1,94 @@
+package com.intelligence.platform.controller;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.lang.management.ManagementFactory;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api")
+@CrossOrigin(origins = "*")
+public class HealthController {
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    @Value("${app.version:1.0.0}")
+    private String appVersion;
+
+    @Value("${spring.datasource.url:}")
+    private String datasourceUrl;
+
+    @GetMapping("/health")
+    public ResponseEntity<Map<String, Object>> health() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("status", "UP");
+        result.put("version", appVersion);
+        result.put("timestamp", Instant.now().toString());
+
+        // 运行时间（秒）
+        long uptimeSeconds = ManagementFactory.getRuntimeMXBean().getUptime() / 1000;
+        result.put("uptime", uptimeSeconds);
+
+        // 数据库连接测试
+        result.put("database", buildDatabaseInfo());
+
+        // JVM 信息
+        result.put("jvm", buildJvmInfo());
+
+        return ResponseEntity.ok(result);
+    }
+
+    private Map<String, Object> buildDatabaseInfo() {
+        Map<String, Object> db = new LinkedHashMap<>();
+        String dbFile = extractDbFile();
+        try {
+            jdbcTemplate.execute("SELECT 1");
+            db.put("status", "UP");
+            db.put("type", "SQLite");
+            db.put("file", dbFile);
+        } catch (Exception e) {
+            db.put("status", "DOWN");
+            db.put("type", "SQLite");
+            db.put("file", dbFile);
+            db.put("error", e.getMessage());
+        }
+        return db;
+    }
+
+    private String extractDbFile() {
+        if (datasourceUrl != null && datasourceUrl.contains("sqlite:")) {
+            String path = datasourceUrl.substring(datasourceUrl.indexOf("sqlite:") + 7);
+            int sep = path.lastIndexOf('/');
+            return sep >= 0 ? path.substring(sep + 1) : path;
+        }
+        return "app.db";
+    }
+
+    private Map<String, Object> buildJvmInfo() {
+        Map<String, Object> jvm = new LinkedHashMap<>();
+        Runtime runtime = Runtime.getRuntime();
+
+        long usedMB = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024);
+        long maxMB = runtime.maxMemory() / (1024 * 1024);
+
+        Map<String, Object> memory = new LinkedHashMap<>();
+        memory.put("used", usedMB);
+        memory.put("max", maxMB);
+        memory.put("unit", "MB");
+        jvm.put("memory", memory);
+
+        jvm.put("threads", Thread.activeCount());
+
+        return jvm;
+    }
+}

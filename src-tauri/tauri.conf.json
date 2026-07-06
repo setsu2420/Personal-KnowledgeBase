@@ -38,6 +38,17 @@
     ],
     "externalBin": [
       "binaries/java-backend"
+    ],
+    "resources": [
+      "binaries/backend.jar"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW1teV9wdWJsaWNfa2V5X3BsYWNlaG9sZGVyX2Zvcl90YXVyaV91cGRhdGVyX3NpZ25lcgo=",
+      "endpoints": [
+        "https://raw.githubusercontent.com/setsu2420/Personal-KnowledgeBase/main/latest.json"
+      ]
+    }
   }
 }

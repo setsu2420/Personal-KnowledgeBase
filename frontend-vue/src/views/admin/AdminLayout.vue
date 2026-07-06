@@ -63,7 +63,10 @@
             </template>
           </el-dropdown>
         </div>
-        <el-button @click="$router.push('/portal')" type="primary" size="small">返回前台</el-button>
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <BackendStatus />
+          <el-button @click="$router.push('/portal')" type="primary" size="small">返回前台</el-button>
+        </div>
       </el-header>
       <el-main class="admin-main">
         <router-view :key="currentProjectId ?? 'default'" />
@@ -95,6 +98,7 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getProjects, createProject, setCurrentProjectId, getCurrentProjectId } from '../../api'
+import BackendStatus from '../../components/BackendStatus.vue'
 
 interface Project {
   id: number

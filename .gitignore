@@ -26,6 +26,7 @@ origin/
 target/
 node_modules/
 dist/
+src-tauri/binaries/*.jar
 
 # 日志和数据库
 *.log

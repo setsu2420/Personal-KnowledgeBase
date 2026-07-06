@@ -86,6 +86,7 @@ import { Delete } from '@element-plus/icons-vue'
 import { getDeepResearches, getDeepResearch, createDeepResearch, deleteDeepResearch } from '../../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
+import { sendNotification } from '../../composables/useTauri'
 
 // 配置 marked
 marked.setOptions({
@@ -177,7 +178,17 @@ function startPolling() {
   pollTimer = setInterval(async () => {
     const hasRunning = tasks.value.some(t => t.status === 'running' || t.status === 'queued')
     if (hasRunning) {
+      const prevRunningIds = tasks.value
+        .filter(t => t.status === 'running' || t.status === 'queued')
+        .map(t => t.id)
       await loadTasks()
+      // 检测刚完成的任务并发送通知
+      for (const id of prevRunningIds) {
+        const task = tasks.value.find(t => t.id === id)
+        if (task && task.status === 'completed') {
+          sendNotification('深度研究完成', `「${task.topic}」研究已完成，共 ${task.source_count || 0} 篇来源`)
+        }
+      }
       if (selectedTask.value && (selectedTask.value.status === 'running' || selectedTask.value.status === 'queued')) {
         await selectTask(selectedTask.value)
       }

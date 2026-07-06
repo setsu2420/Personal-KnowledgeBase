@@ -7,6 +7,11 @@
     "core:default",
     "opener:default",
     "dialog:default",
-    "shell:default"
+    "shell:default",
+    "notification:default",
+    "clipboard-manager:default",
+    "fs:default",
+    "autostart:default",
+    "updater:default"
   ]
 }

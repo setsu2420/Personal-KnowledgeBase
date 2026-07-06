@@ -4,6 +4,7 @@
     <div class="top-bar">
       <span class="title">前台 — 分析工作空间</span>
       <div class="top-bar-right">
+        <BackendStatus style="margin-right: 8px;" />
         <!-- 项目选择器 -->
         <el-dropdown trigger="click" @command="handleProjectCommand">
           <el-button 
@@ -89,6 +90,7 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { Briefcase, ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getProjects, createProject, setCurrentProjectId, getCurrentProjectId } from '../../api'
+import BackendStatus from '../../components/BackendStatus.vue'
 import Home from './Home.vue'
 import SmartQA from './SmartQA.vue'
 import DeepResearch from './DeepResearch.vue'

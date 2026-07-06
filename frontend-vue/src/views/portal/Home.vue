@@ -186,6 +186,12 @@
         </template>
 
         <el-form-item label="上传文件">
+          <div v-if="isTauriEnv" style="margin-bottom: 8px;">
+            <el-button type="primary" plain size="small" @click="pickFilesHome">
+              <el-icon><FolderOpened /></el-icon> 选择文件（系统对话框）
+            </el-button>
+            <span v-if="files.length > 0" style="margin-left: 8px; color: #67C23A; font-size: 13px;">已选择 {{ files.length }} 个文件</span>
+          </div>
           <el-upload
             ref="uploadRef"
             :auto-upload="false"
@@ -387,10 +393,18 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, reactive, watch } from 'vue'
-import { Search, UploadFilled, Loading, Picture, Grid } from '@element-plus/icons-vue'
+import { Search, UploadFilled, Loading, Picture, Grid, FolderOpened } from '@element-plus/icons-vue'
 import { getKnowledgeEntries, updateTableMarkdown, getMediaUrl, getDocuments, uploadFile, getDocFileUrl } from '../../api'
 import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
+import { isTauri, openFileAsFiles, DOC_FILTERS, sendNotification } from '../../composables/useTauri'
+
+const isTauriEnv = isTauri()
+
+async function pickFilesHome() {
+  const selected = await openFileAsFiles({ multiple: true, filters: DOC_FILTERS })
+  files.value.push(...selected)
+}
 
 // 配置 marked
 marked.setOptions({
@@ -746,6 +760,7 @@ async function submitUpload() {
   uploadProgress.currentFile = ''
   uploadProgress.log.push('全部处理完成')
   ElMessage.success(`上传完成：共${files.value.length}个文件`)
+  sendNotification('知识抽取完成', `成功处理 ${files.value.length} 个文件，词条已入库`)
 
   uploading.value = false
   files.value = []

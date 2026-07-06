@@ -1,0 +1,5 @@
+#!/bin/sh
+# Dummy sidecar to satisfy Tauri's externalBin requirement.
+# The actual jar is launched programmatically by the Rust code.
+echo "Intelligence Platform Java Sidecar Placeholder"
+exit 0

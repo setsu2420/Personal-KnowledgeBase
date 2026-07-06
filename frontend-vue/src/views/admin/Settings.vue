@@ -551,9 +551,112 @@ except Exception as e:
             </el-tabs>
           </div>
 
+          <!-- 桌面设置 -->
+          <div v-if="activeCat === 'desktop'" class="config-section">
+            <h3>桌面应用设置</h3>
+            <p class="section-desc">配置本地桌面端的特定选项，包括系统托盘行为以及查看本地运行日志。</p>
+            
+            <el-form :model="desktopForm" label-width="140px" style="max-width: 600px;">
+              
+              <el-form-item label="关闭时行为">
+                <el-radio-group v-model="desktopForm.closeAction">
+                  <el-radio label="minimize">最小化到系统托盘</el-radio>
+                  <el-radio label="quit">直接退出应用</el-radio>
+                </el-radio-group>
+                <div class="form-hint" style="color: #94A3B8; font-size: 12px; margin-top: 4px;">选择点击窗口关闭按钮（X）时的操作。</div>
+              </el-form-item>
+              
+              <el-form-item label="更新检查频率">
+                <el-select v-model="desktopForm.checkUpdateFrequency">
+                  <el-option label="每次启动" value="startup" />
+                  <el-option label="每天一次" value="daily" />
+                  <el-option label="每周一次" value="weekly" />
+                  <el-option label="手动检查" value="manual" />
+                </el-select>
+              </el-form-item>
+              
+              <el-form-item>
+                <el-button type="primary" @click="saveDesktopConfig">保存设置</el-button>
+                <el-button type="success" @click="handleOpenDataDir">打开数据目录</el-button>
+                <el-button type="info" @click="handleCheckUpdate">检查更新</el-button>
+              </el-form-item>
+            </el-form>
+
+            <el-divider style="margin: 24px 0;" />
+
+            <!-- 本地运行日志 -->
+            <div class="logs-section">
+              <div class="logs-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h4 style="margin: 0; font-size: 15px; color: #ffffff;">本地引擎运行日志</h4>
+                <div class="logs-actions">
+                  <el-button size="small" type="primary" :loading="loadingLogs" @click="fetchLogs">刷新日志</el-button>
+                </div>
+              </div>
+              
+              <div class="logs-console" style="background: #1e1e1e; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 12px; color: #d4d4d4; max-height: 350px; overflow-y: auto; line-height: 1.6; border: 1px solid #333;">
+                <div v-for="(log, idx) in logs" :key="idx" class="log-line" style="white-space: pre-wrap; margin-bottom: 4px; text-align: left;">
+                  {{ log }}
+                </div>
+                <div v-if="logs.length === 0" style="color: #6a9955; text-align: center; padding: 20px 0;">
+                  无日志记录
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 系统日志 -->
+          <div v-if="activeCat === 'system-logs'" class="config-section">
+            <h3>系统日志</h3>
+            <p class="section-desc">查看和管理系统运行日志。日志文件保存在 <code>~/.pku-platform/logs/app.log</code>，自动轮转保留最近 7 天。</p>
+
+            <div style="display: flex; gap: 12px; margin-bottom: 20px;">
+              <el-button type="primary" @click="openLogViewer">
+                <el-icon style="margin-right: 4px;"><Document /></el-icon>
+                查看日志
+              </el-button>
+              <el-button type="success" @click="openLogDir">
+                <el-icon style="margin-right: 4px;"><FolderOpened /></el-icon>
+                打开日志目录
+              </el-button>
+            </div>
+
+            <div class="logs-section">
+              <div class="logs-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <h4 style="margin: 0; font-size: 15px;">最近日志（{{ systemLogs.length }} 行）</h4>
+                <div class="logs-actions">
+                  <el-button size="small" type="primary" :loading="loadingSystemLogs" @click="fetchSystemLogs">刷新</el-button>
+                </div>
+              </div>
+
+              <div class="logs-console" style="background: #1e1e1e; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 12px; color: #d4d4d4; max-height: 450px; overflow-y: auto; line-height: 1.6; border: 1px solid #333;">
+                <div v-for="(log, idx) in systemLogs" :key="idx" class="log-line" style="white-space: pre-wrap; margin-bottom: 4px; text-align: left;">
+                  {{ log }}
+                </div>
+                <div v-if="systemLogs.length === 0" style="color: #6a9955; text-align: center; padding: 20px 0;">
+                  暂无日志记录，系统运行后会自动生成日志
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </el-col>
     </el-row>
+
+    <!-- 系统日志对话框 -->
+    <el-dialog v-model="showLogDialog" title="系统日志" width="90%" top="5vh" destroy-on-close>
+      <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
+        <el-button size="small" type="primary" :loading="loadingSystemLogs" @click="fetchSystemLogs">刷新</el-button>
+      </div>
+      <div class="logs-console" style="background: #1e1e1e; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 12px; color: #d4d4d4; height: 60vh; overflow-y: auto; line-height: 1.6; border: 1px solid #333;">
+        <div v-for="(log, idx) in systemLogs" :key="idx" style="white-space: pre-wrap; margin-bottom: 4px;">
+          {{ log }}
+        </div>
+        <div v-if="systemLogs.length === 0" style="color: #6a9955; text-align: center; padding: 40px 0;">
+          暂无日志记录
+        </div>
+      </div>
+    </el-dialog>
 
     <!-- LLM 配置对话框 -->
     <el-dialog v-model="showAddLlm" :title="editingLlm ? '编辑 LLM 配置' : '添加 LLM 配置'" width="700px" top="3vh">
@@ -638,7 +741,7 @@ except Exception as e:
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Edit, Switch as SwitchIcon, Delete, Connection } from '@element-plus/icons-vue'
+import { Edit, Switch as SwitchIcon, Delete, Connection, Document, FolderOpened } from '@element-plus/icons-vue'
 import {
   getLlmConfigs, createLlmConfig, updateLlmConfig, toggleLlmConfig,
   deleteLlmConfig as deleteLlmConfigApi, testLlmConnection,
@@ -660,7 +763,9 @@ const categories: Category[] = [
   { id: 'web-search', label: '网络搜索', icon: '🌐' },
   { id: 'kg', label: '图谱构建', icon: '🕸️' },
   { id: 'general', label: '通用设置', icon: '⚙️' },
+  { id: 'desktop', label: '桌面设置', icon: '💻' },
   { id: 'api-access', label: 'API 接入', icon: '🔌' },
+  { id: 'system-logs', label: '系统日志', icon: '📋' },
 ]
 
 const activeCat = ref('llm')
@@ -1250,6 +1355,116 @@ async function rebuildVectorIdx() {
   rebuildingVector.value = false
 }
 
+// 桌面端设置 state
+const desktopForm = reactive({
+  minimizeToTray: true,
+  closeAction: 'minimize', // 'minimize' or 'quit'
+  checkUpdateFrequency: 'daily'
+})
+
+const logs = ref<string[]>([])
+const loadingLogs = ref(false)
+
+import { isTauri } from '../../composables/useTauri'
+
+async function handleOpenDataDir() {
+  if (isTauri()) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('open_data_dir')
+      ElMessage.success('正在打开数据目录...')
+    } catch (e: any) {
+      ElMessage.error('无法打开数据目录: ' + e.message)
+    }
+  } else {
+    ElMessage.warning('非桌面环境下无法打开数据目录')
+  }
+}
+
+function handleCheckUpdate() {
+  const event = new CustomEvent('tauri-check-update', { detail: { manual: true } })
+  window.dispatchEvent(event)
+}
+
+async function loadDesktopConfigs() {
+  const saved = localStorage.getItem('desktopSettings')
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved)
+      Object.assign(desktopForm, parsed)
+    } catch (e) {
+      console.error('Failed to parse desktop settings:', e)
+    }
+  }
+  
+  // 首次加载也拉取日志
+  fetchLogs()
+}
+
+async function saveDesktopConfig() {
+  localStorage.setItem('desktopSettings', JSON.stringify(desktopForm))
+  ElMessage.success('桌面设置已保存')
+}
+
+async function fetchLogs() {
+  loadingLogs.value = true
+  try {
+    const resp = await fetch('/api/admin/logs')
+    if (resp.ok) {
+      const json = await resp.json()
+      if (json.code === 200) {
+        logs.value = json.data
+      }
+    }
+  } catch (e) {
+    console.error('Failed to fetch logs:', e)
+  } finally {
+    loadingLogs.value = false
+  }
+}
+
+// 系统日志
+const systemLogs = ref<string[]>([])
+const loadingSystemLogs = ref(false)
+const showLogDialog = ref(false)
+
+async function fetchSystemLogs() {
+  loadingSystemLogs.value = true
+  try {
+    const resp = await fetch('/api/admin/logs?limit=1000')
+    if (resp.ok) {
+      const json = await resp.json()
+      if (json.code === 200) {
+        systemLogs.value = json.data || []
+      }
+    }
+  } catch (e) {
+    console.error('Failed to fetch system logs:', e)
+  } finally {
+    loadingSystemLogs.value = false
+  }
+}
+
+function openLogViewer() {
+  fetchSystemLogs()
+  showLogDialog.value = true
+}
+
+async function openLogDir() {
+  if (isTauri()) {
+    try {
+      const { openPath } = await import('@tauri-apps/plugin-opener')
+      const home = await (await import('@tauri-apps/api/path')).homeDir()
+      await openPath(home + '.pku-platform/logs')
+      ElMessage.success('正在打开日志目录...')
+    } catch (e: any) {
+      ElMessage.error('无法打开日志目录: ' + e.message)
+    }
+  } else {
+    ElMessage.warning('非桌面环境下无法打开日志目录')
+  }
+}
+
 onMounted(() => {
   loadLlmConfigs()
   loadGeneral()
@@ -1258,6 +1473,7 @@ onMounted(() => {
   loadEmbedding()
   loadOcrConfig()
   loadKgConfig()
+  loadDesktopConfigs()
 })
 </script>
 

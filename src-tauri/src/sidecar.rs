@@ -86,6 +86,51 @@ fn find_jar(resource_dir: &std::path::Path) -> Result<String, Box<dyn std::error
     ).into())
 }
 
+/// 优雅关闭 Spring Boot 后端进程
+/// 1. 先发送 SIGTERM（Unix）或 taskkill（Windows），触发 Spring Boot 的 graceful shutdown
+/// 2. 等待最多 10 秒让进程自行退出
+/// 3. 如果超时仍未退出，则强制 kill
+pub async fn stop_spring_boot(child: &mut Child) -> Result<(), Box<dyn std::error::Error>> {
+    let pid = child.id().ok_or("Process already exited")?;
+    println!("[sidecar] Sending SIGTERM to Spring Boot (PID: {})", pid);
+
+    // 发送 SIGTERM 信号（Unix）
+    #[cfg(unix)]
+    {
+        let _ = std::process::Command::new("kill")
+            .arg("-TERM")
+            .arg(pid.to_string())
+            .output();
+    }
+
+    // Windows: 使用 taskkill（不带 /F 即为温和终止）
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string()])
+            .output();
+    }
+
+    // 等待最多 10 秒让进程优雅退出
+    let timeout = tokio::time::Duration::from_secs(10);
+    match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(Ok(status)) => {
+            println!("[sidecar] Spring Boot exited gracefully: {}", status);
+        }
+        Ok(Err(e)) => {
+            eprintln!("[sidecar] Error waiting for process exit: {}", e);
+            // 尝试强制终止
+            let _ = child.kill().await;
+        }
+        Err(_) => {
+            println!("[sidecar] Graceful shutdown timeout (10s) reached, force killing process");
+            let _ = child.kill().await;
+        }
+    }
+
+    Ok(())
+}
+
 /// 获取后端端口
 fn get_backend_port() -> u16 {
     std::env::var("BACKEND_PORT")

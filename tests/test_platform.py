@@ -144,6 +144,9 @@ def run_frontend_tests():
         # 1. Load Homepage
         print_step(f"Navigating to {FRONTEND_BASE}/ ...")
         page.goto(FRONTEND_BASE + "/")
+        # 写入 localStorage 防止新用户引导遮罩阻挡元素点击
+        page.evaluate("localStorage.setItem('firstRunComplete', 'true')")
+        page.reload()
         page.wait_for_timeout(2000)
         print(f"  Current URL: {page.url}")
         assert "portal" in page.url, "Should redirect or navigate to portal page."
