@@ -92,12 +92,6 @@ const handleRetry = async () => {
     clearDotsAnimation()
   }
 }
-  if (!started) {
-    errorMessage.value = '发送启动命令失败。请手动检查 Spring Boot 后端是否在运行。'
-    showError.value = true
-    clearDotsAnimation()
-  }
-}
 
 // 监听后端状态变化
 watch(
