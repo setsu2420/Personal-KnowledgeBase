@@ -7,6 +7,20 @@ use tokio::process::{Child, Command};
 pub struct DesktopConfig {
     pub custom_data_dir: Option<String>,
     pub close_action: Option<String>, // "minimize" or "quit"
+    /// LLM 配置（可选，覆盖 application.properties 中的默认值）
+    #[serde(default)]
+    pub llm: LlmSettings,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone, Debug)]
+pub struct LlmSettings {
+    pub api_key: Option<String>,
+    pub base_url: Option<String>,
+    pub model: Option<String>,
+    pub provider: Option<String>,
+    pub embedding_api_key: Option<String>,
+    pub embedding_base_url: Option<String>,
+    pub embedding_model: Option<String>,
 }
 
 pub fn get_config_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -73,11 +87,17 @@ pub fn start_spring_boot(app: &AppHandle) -> Result<Child, Box<dyn std::error::E
     let mut cmd = Command::new(&java_cmd);
     cmd.arg("-jar")
         .arg(&jar_path)
-        .arg(format!("-Dserver.port={}", get_backend_port()))
-        .arg(format!("-Dupload.dir={}", app_data_dir.join("uploads").display()))
-        .arg(format!("-Dspring.datasource.url=jdbc:sqlite:{}", app_data_dir.join("intelligence_platform.db").display()))
-        .current_dir(&app_data_dir)
-        .stdout(Stdio::piped())
+        // Java module flags for SQLite native access (required since Java 17+)
+        .arg("--enable-native-access=ALL-UNNAMED")
+        .arg(format!("--server.port={}", get_backend_port()))
+        .arg(format!("--upload.dir={}", app_data_dir.join("uploads").display()))
+        .arg(format!("--spring.datasource.url=jdbc:sqlite:{}", app_data_dir.join("intelligence_platform.db").display()))
+        .current_dir(&app_data_dir);
+
+    // 传递 LLM 配置（如果 config.json 中设置了）
+    inject_llm_args(&mut cmd, &config);
+
+    cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
     let child = cmd.spawn()?;
@@ -211,4 +231,25 @@ fn get_backend_port() -> u16 {
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(8080)
+}
+
+/// 将 DesktopConfig 中的 LLM 设置注入为 Spring Boot 命令行参数
+fn inject_llm_args(cmd: &mut Command, config: &DesktopConfig) {
+    let llm = &config.llm;
+    macro_rules! set_prop {
+        ($val:expr, $name:expr) => {
+            if let Some(ref v) = $val {
+                if !v.is_empty() {
+                    cmd.arg(format!("--{}={}", $name, v));
+                }
+            }
+        };
+    }
+    set_prop!(llm.api_key, "llm.default.api-key");
+    set_prop!(llm.base_url, "llm.default.base-url");
+    set_prop!(llm.model, "llm.default.model");
+    set_prop!(llm.provider, "llm.default.provider");
+    set_prop!(llm.embedding_api_key, "embedding.default.api-key");
+    set_prop!(llm.embedding_base_url, "embedding.default.base-url");
+    set_prop!(llm.embedding_model, "embedding.default.model");
 }

@@ -85,7 +85,7 @@ async function loadData() {
   loading.value = false
 }
 
-function handleFileChange(file: UploadFile, fileListNew: UploadFile[]) {
+function handleFileChange(_file: UploadFile, fileListNew: UploadFile[]) {
   fileList.value = fileListNew
 }
 
