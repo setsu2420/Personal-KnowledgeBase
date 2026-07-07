@@ -1,5 +1,30 @@
 # 更新日志
 
+## 2026-07-07 (v7)
+
+### 桌面应用 LLM 配置迁移 + DMG 重新构建
+
+**1. LLM 配置从 .env 到桌面应用的完整链路**
+- 新增 `LlmSettings` 结构体到 `DesktopConfig`，支持在 `config.json` 中存储 LLM 配置
+- 新增 `inject_llm_args` 函数，将 config.json 中的 LLM 设置作为 Spring Boot 命令行参数传递
+- 支持 `--enable-native-access=ALL-UNNAMED` 标志，修复 Java 17+ 下 SQLite 原生访问问题
+- 修正 Spring Boot 参数格式从 `-D` 系统属性改为 `--` 命令行参数
+
+**2. LLM 配置传递链路**
+- `.env` 文件 → `application.properties` 默认值 → `config.json` 用户配置 → `sidecar.rs` 命令行注入 → Spring Boot 运行时
+- 首次启动向导引导用户配置 LLM API Key，保存到数据库
+- 设置页 LLM 配置管理（CRUD + 连接测试）
+
+**3. 代码质量修复**
+- 修复 Vue 组件中未使用参数的 lint 警告（InfoDynamic.vue、Reports.vue）
+
+**4. DMG 重新构建**
+- 使用最新代码重新构建 macOS DMG 安装包
+- 更新 `latest.json` 版本号和下载地址
+- 同步更新 GitHub Release
+
+---
+
 ## 2026-07-06 (v6)
 
 ### 前端导航与词条显示优化 + 向量索引重建与集成测试
