@@ -68,6 +68,8 @@ public class KnowledgeEntryController {
 
         Page<KnowledgeEntry> pageObj = new Page<>(page, pageSize);
         Page<KnowledgeEntry> result = knowledgeEntryMapper.selectPage(pageObj, wrapper);
+        // 验证并过滤不存在的关联词条
+        validateRelatedEntries(result.getRecords());
         return new PageResult<>(result.getTotal(), page, pageSize, result.getRecords());
     }
 
@@ -99,7 +101,11 @@ public class KnowledgeEntryController {
 
     @GetMapping("/{id}")
     public KnowledgeEntry get(@PathVariable Long id) {
-        return knowledgeEntryMapper.selectById(id);
+        KnowledgeEntry entry = knowledgeEntryMapper.selectById(id);
+        if (entry != null) {
+            validateRelatedEntry(entry);
+        }
+        return entry;
     }
 
     /**
@@ -108,6 +114,8 @@ public class KnowledgeEntryController {
      */
     @PostMapping("/")
     public Map<String, Object> create(@RequestBody KnowledgeEntry entry) {
+        // 创建时验证关联词条真实性
+        validateRelatedEntry(entry);
         knowledgeEntryMapper.insert(entry);
         // 新词条创建后，自动更新相关图表资料的标签
         updateChartEntryTags(entry);
@@ -217,6 +225,8 @@ public class KnowledgeEntryController {
     @PutMapping("/{id}")
     public Map<String, Object> update(@PathVariable Long id, @RequestBody KnowledgeEntry entry) {
         entry.setId(id);
+        // 更新时验证关联词条真实性
+        validateRelatedEntry(entry);
         knowledgeEntryMapper.updateById(entry);
         syncKG();
         return Map.of("message", "更新成功");
@@ -282,11 +292,78 @@ public class KnowledgeEntryController {
         return Map.of("message", "批量审核完成，共" + ids.size() + "条");
     }
 
+    /**
+     * 修复所有词条的关联词条：过滤掉不存在的关联标题
+     * 用于清理 LLM 提取时生成的无效关联词条
+     */
+    @PostMapping("/repair-related")
+    public Map<String, Object> repairRelated() {
+        Long pid = projectContext.getCurrentProjectId();
+        LambdaQueryWrapper<KnowledgeEntry> wrapper = new LambdaQueryWrapper<>();
+        if (pid != null) wrapper.eq(KnowledgeEntry::getProjectId, pid);
+        wrapper.isNotNull(KnowledgeEntry::getRelated).ne(KnowledgeEntry::getRelated, "");
+        List<KnowledgeEntry> entries = knowledgeEntryMapper.selectList(wrapper);
+
+        int totalChecked = entries.size();
+        int totalFixed = 0;
+        for (KnowledgeEntry entry : entries) {
+            String original = entry.getRelated();
+            validateRelatedEntry(entry);
+            String cleaned = entry.getRelated();
+            if (original != null && !original.equals(cleaned == null ? "" : cleaned)) {
+                knowledgeEntryMapper.updateById(entry);
+                totalFixed++;
+                log.info("修复关联词条: '{}' (id={}) {} -> {}", entry.getTitle(), entry.getId(), original, cleaned);
+            }
+        }
+
+        return Map.of(
+            "message", "关联词条修复完成",
+            "total_checked", totalChecked,
+            "total_fixed", totalFixed
+        );
+    }
+
     private void syncKG() {
         try {
             kgController.buildGraph();
         } catch (Exception e) {
             // ignore
+        }
+    }
+
+    /**
+     * 验证单个词条的related字段，过滤不存在的关联词条
+     */
+    private void validateRelatedEntry(KnowledgeEntry entry) {
+        if (entry.getRelated() == null || entry.getRelated().isEmpty()) return;
+        
+        String[] relatedTitles = entry.getRelated().split(",");
+        List<String> validTitles = new ArrayList<>();
+        
+        for (String title : relatedTitles) {
+            String trimmed = title.trim();
+            if (trimmed.isEmpty()) continue;
+            
+            LambdaQueryWrapper<KnowledgeEntry> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(KnowledgeEntry::getTitle, trimmed);
+            if (entry.getProjectId() != null) {
+                wrapper.eq(KnowledgeEntry::getProjectId, entry.getProjectId());
+            }
+            if (knowledgeEntryMapper.selectCount(wrapper) > 0) {
+                validTitles.add(trimmed);
+            }
+        }
+        
+        entry.setRelated(validTitles.isEmpty() ? null : String.join(",", validTitles));
+    }
+
+    /**
+     * 批量验证词条列表的related字段，过滤不存在的关联词条
+     */
+    private void validateRelatedEntries(List<KnowledgeEntry> entries) {
+        for (KnowledgeEntry entry : entries) {
+            validateRelatedEntry(entry);
         }
     }
 }

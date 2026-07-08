@@ -97,6 +97,14 @@ public class KGController {
             edges = getProjectEdges();
         }
 
+        // 获取知识词条用于富化节点信息
+        Long pid = projectContext.getCurrentProjectId();
+        LambdaQueryWrapper<KnowledgeEntry> entryWrapper = new LambdaQueryWrapper<>();
+        if (pid != null) entryWrapper.eq(KnowledgeEntry::getProjectId, pid);
+        List<KnowledgeEntry> entries = knowledgeEntryMapper.selectList(entryWrapper);
+        Map<String, KnowledgeEntry> titleToEntry = entries.stream()
+                .collect(Collectors.toMap(KnowledgeEntry::getTitle, e -> e, (a, b) -> a));
+
         // 计算每个节点的连接数
         Map<Long, Integer> linkCounts = new HashMap<>();
         for (KGNode n : nodes) linkCounts.put(n.getId(), 0);
@@ -105,7 +113,7 @@ public class KGController {
             linkCounts.merge(e.getTargetId(), 1, Integer::sum);
         }
 
-        // 将 linkCount 附加到节点数据中
+        // 将 linkCount、keywords、entryType 附加到节点数据中
         List<Map<String, Object>> enrichedNodes = new ArrayList<>();
         for (KGNode node : nodes) {
             Map<String, Object> n = new HashMap<>();
@@ -115,10 +123,21 @@ public class KGController {
             n.put("description", node.getDescription());
             n.put("communityId", node.getCommunityId() != null ? node.getCommunityId() : 0);
             n.put("linkCount", linkCounts.getOrDefault(node.getId(), 0));
+            KnowledgeEntry entry = titleToEntry.get(node.getLabel());
+            if (entry != null) {
+                n.put("keywords", entry.getKeywords() != null 
+                        ? java.util.Arrays.asList(entry.getKeywords().split(",\\s*")) 
+                        : java.util.Collections.emptyList());
+                n.put("entryType", entry.getEntryLibrary() != null ? entry.getEntryLibrary() : 
+                        entry.getEntryType() != null ? entry.getEntryType() : null);
+            } else {
+                n.put("keywords", java.util.Collections.emptyList());
+                n.put("entryType", null);
+            }
             enrichedNodes.add(n);
         }
 
-        // 构建社区
+        // 构建社区（含富化后的成员信息）
         Map<Integer, Map<String, Object>> communities = new LinkedHashMap<>();
         for (KGNode node : nodes) {
             int cid = node.getCommunityId() != null ? node.getCommunityId() : 0;
@@ -129,13 +148,24 @@ public class KGController {
                 comm.put("cohesion", 0.0);
                 return comm;
             });
-            ((List<KGNode>) communities.get(cid).get("members")).add(node);
+            // 富化社区成员信息
+            Map<String, Object> memberMap = new HashMap<>();
+            memberMap.put("id", node.getId());
+            memberMap.put("label", node.getLabel());
+            KnowledgeEntry entry = titleToEntry.get(node.getLabel());
+            if (entry != null && entry.getKeywords() != null) {
+                memberMap.put("keywords", java.util.Arrays.asList(entry.getKeywords().split(",\\s*")));
+            }
+            ((List<Map<String, Object>>) communities.get(cid).get("members")).add(memberMap);
         }
 
         // 计算社区内聚度
         for (Map.Entry<Integer, Map<String, Object>> entry : communities.entrySet()) {
-            List<KGNode> members = (List<KGNode>) entry.getValue().get("members");
-            Set<Long> memberIds = members.stream().map(KGNode::getId).collect(Collectors.toSet());
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> members = (List<Map<String, Object>>) entry.getValue().get("members");
+            Set<Long> memberIds = members.stream()
+                    .map(m -> ((Number) m.get("id")).longValue())
+                    .collect(Collectors.toSet());
             long internalEdges = edges.stream()
                     .filter(e -> memberIds.contains(e.getSourceId()) && memberIds.contains(e.getTargetId()))
                     .count();

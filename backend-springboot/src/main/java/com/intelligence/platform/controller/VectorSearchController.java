@@ -45,19 +45,20 @@ public class VectorSearchController {
     public Map<String, Object> search(@RequestBody Map<String, Object> body) {
         String query = (String) body.getOrDefault("query", "");
         int topK = body.containsKey("topK") ? ((Number) body.get("topK")).intValue() : 5;
+        float threshold = body.containsKey("threshold") ? ((Number) body.get("threshold")).floatValue() : 0.0f;
+        String mediaType = (String) body.get("mediaType");
 
         if (query.isEmpty()) {
             return Map.of("results", java.util.List.of(), "message", "请输入搜索内容");
         }
 
         try {
-            var results = vectorSearchService.search(query, topK);
+            var results = vectorSearchService.searchWithFilter(query, topK, threshold, mediaType);
             return Map.of(
                     "results", results.stream().map(r -> Map.of(
                             "id", r.id(),
                             "score", r.score(),
-                            "title", r.metadata().getOrDefault("title", ""),
-                            "content", r.metadata().getOrDefault("content", "")
+                            "metadata", r.metadata()
                     )).toList(),
                     "count", results.size()
             );

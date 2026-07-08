@@ -19,7 +19,7 @@ llm_wiki/
 data/
 uploads/
 raw/
-config/
+/config/
 origin/
 Test-Project/
 
@@ -56,3 +56,10 @@ tests/
 
 # 项目文件（不开源）
 *.docx
+
+# 测试脚本和交付包
+test_*.sh
+process_existing_tables.sh
+rebuild_index.sh
+render_pdf_cover.py
+*.zip

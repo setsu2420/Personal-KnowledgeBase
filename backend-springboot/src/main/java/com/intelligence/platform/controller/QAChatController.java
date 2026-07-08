@@ -94,13 +94,16 @@ public class QAChatController {
             // 1. 分类检索：文本 + 表格 + 图片
             int maxEntries = getSettingInt("qa_max_entries", 10);
             int imageTopK = getSettingInt("qa_image_topK", 5);
-            float imageThreshold = getSettingFloat("qa_image_threshold", 0.6f);
+            float imageThreshold = getSettingFloat("qa_image_threshold", 0.2f);
             int tableTopK = getSettingInt("qa_table_topK", 3);
-            float tableThreshold = getSettingFloat("qa_table_threshold", 0.6f);
+            float tableThreshold = getSettingFloat("qa_table_threshold", 0.35f);
 
             // 文本检索（含表格）
             List<KnowledgeEntry> relevantEntries = searchRelevantEntries(question, maxEntries);
             String context = buildContext(relevantEntries);
+
+            log.info("问答图片/表格检索参数 - imageTopK={}, imageThreshold={}, tableTopK={}, tableThreshold={}",
+                    imageTopK, imageThreshold, tableTopK, tableThreshold);
 
             // 图片检索（先用阈值筛选，再用 Top-K 截取）；topK=0 时不返回
             List<Map<String, Object>> imageResults = imageTopK > 0
@@ -109,6 +112,9 @@ public class QAChatController {
             // 表格检索（先用阈值筛选，再用 Top-K 截取）；topK=0 时不返回
             List<Map<String, Object>> tableResults = tableTopK > 0
                     ? searchTables(question, tableTopK, tableThreshold) : List.of();
+
+            log.info("图片搜索结果: {} 个", imageResults.size());
+            log.info("表格搜索结果: {} 个", tableResults.size());
 
             // 2. 构建系统提示词（指导LLM按 文字→表格→图片 顺序回答）
             // 使用编号引用 [1] [2] 格式，参考 llm_wiki 的引用方式
@@ -223,10 +229,10 @@ public class QAChatController {
             try {
                 // 1. 知识检索
                 int maxEntries = getSettingInt("qa_max_entries", 20);
-                int imageTopK = getSettingInt("qa_image_top_k", 5);
-                float imageThreshold = getSettingFloat("qa_image_threshold", 0.6f);
-                int tableTopK = getSettingInt("qa_table_top_k", 3);
-                float tableThreshold = getSettingFloat("qa_table_threshold", 0.6f);
+                int imageTopK = getSettingInt("qa_image_topK", 5);
+                float imageThreshold = getSettingFloat("qa_image_threshold", 0.2f);
+                int tableTopK = getSettingInt("qa_table_topK", 3);
+                float tableThreshold = getSettingFloat("qa_table_threshold", 0.35f);
 
                 List<KnowledgeEntry> relevantEntries = searchRelevantEntries(question, maxEntries);
                 String context = buildContext(relevantEntries);
@@ -286,6 +292,8 @@ public class QAChatController {
                 Map<String, Object> doneData = new HashMap<>();
                 doneData.put("answer", cleanedAnswer);
                 doneData.put("confidence", Math.round(confidence * 100.0) / 100.0);
+                // 流式结束后再返回引用来源，确保来源在回答完毕后才显示
+                doneData.put("sources", sources);
                 emitter.send(SseEmitter.event().name("done").data(objectMapper.writeValueAsString(doneData)));
 
                 // 5. 保存问答记录

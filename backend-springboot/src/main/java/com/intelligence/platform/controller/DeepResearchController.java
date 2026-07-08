@@ -91,7 +91,7 @@ public class DeepResearchController {
      * 创建并启动深度研究任务
      * 参考 llm_wiki deep-research.ts 的 queueResearch + processQueue
      */
-    @PostMapping("/")
+    @PostMapping
     public Map<String, Object> create(@RequestBody DeepResearch research) {
         String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         Long pid = projectContext.getCurrentProjectId();

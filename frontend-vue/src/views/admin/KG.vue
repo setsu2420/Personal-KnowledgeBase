@@ -7,6 +7,10 @@
           <div class="graph-toolbar">
             <div class="toolbar-left">
               <span class="toolbar-title">知识图谱管理</span>
+              <el-input v-model="searchQuery" placeholder="搜索节点..." size="small" clearable style="width: 160px;" />
+              <el-select v-model="typeFilter" placeholder="类型筛选" size="small" clearable style="width: 110px;">
+                <el-option v-for="(label, value) in typeLabels" :key="value" :label="label" :value="value" />
+              </el-select>
               <el-tag size="small">{{ graphData.nodes?.length || 0 }} 节点</el-tag>
               <el-tag type="success" size="small">{{ graphData.edges?.length || 0 }} 关系</el-tag>
               <el-tag type="warning" size="small">{{ graphData.communities?.length || 0 }} 社区</el-tag>
@@ -32,13 +36,24 @@
           <div class="data-section">
             <el-tabs v-model="dataTab" type="card" size="small">
               <el-tab-pane label="节点列表" name="nodes">
-                <el-table :data="graphData.nodes || []" stripe size="small" max-height="250">
+                <el-table :data="filteredNodes" stripe size="small" max-height="250">
                   <el-table-column prop="id" label="ID" width="60" />
                   <el-table-column prop="label" label="标签" />
                   <el-table-column prop="nodeType" label="类型" width="80">
                     <template #default="{ row }">
                       <span class="type-badge" :style="{ backgroundColor: typeColors[row.nodeType] || typeColors.other }" />
                       {{ typeLabels[row.nodeType] || row.nodeType }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="关键词" width="140">
+                    <template #default="{ row }">
+                      <el-tag v-for="kw in (row.keywords || []).slice(0, 3)" :key="kw" size="small" style="margin: 1px;" type="info">{{ kw }}</el-tag>
+                      <span v-if="(row.keywords || []).length === 0" style="color: #94A3B8;">-</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="资料库" width="100">
+                    <template #default="{ row }">
+                      {{ entryTypeLabels[row.entryType] || row.entryType || '-' }}
                     </template>
                   </el-table-column>
                   <el-table-column prop="communityId" label="社区" width="60" />
@@ -69,6 +84,11 @@
                       <el-progress :percentage="Math.round((row.cohesion || 0) * 100)" :stroke-width="10" :text-inside="true" />
                     </template>
                   </el-table-column>
+                  <el-table-column label="核心主题词" width="160">
+                    <template #default="{ row }">
+                      <el-tag v-for="kw in getTopKeywords(row.members || [])" :key="kw" size="small" style="margin: 1px;" type="info">{{ kw }}</el-tag>
+                    </template>
+                  </el-table-column>
                   <el-table-column label="核心节点">
                     <template #default="{ row }">
                       <el-tag v-for="m in (row.members || []).slice(0, 4)" :key="m.id" size="small" style="margin: 2px;">{{ m.label }}</el-tag>
@@ -95,6 +115,15 @@
             <el-descriptions-item label="类型">
               <el-tag size="small">{{ typeLabels[selectedNode.nodeType] || selectedNode.nodeType }}</el-tag>
             </el-descriptions-item>
+            <el-descriptions-item label="资料库">
+              {{ entryTypeLabels[selectedNode.entryType] || selectedNode.entryType || '-' }}
+            </el-descriptions-item>
+            <el-descriptions-item label="关键词">
+              <template v-if="selectedNode.keywords && selectedNode.keywords.length">
+                <el-tag v-for="kw in selectedNode.keywords" :key="kw" size="small" style="margin: 1px;" type="info">{{ kw }}</el-tag>
+              </template>
+              <span v-else>-</span>
+            </el-descriptions-item>
             <el-descriptions-item label="社区">{{ selectedNode.communityId }}</el-descriptions-item>
             <el-descriptions-item label="连接数">{{ selectedNode.linkCount }}</el-descriptions-item>
             <el-descriptions-item label="描述">{{ selectedNode.description || '-' }}</el-descriptions-item>
@@ -110,6 +139,7 @@
             </el-tag>
             <div class="insight-title">{{ insight.title }}</div>
             <div class="insight-desc">{{ insight.desc }}</div>
+            <div v-if="insight.type === 'isolated'" class="insight-suggestion">建议: 补充该节点的相关文档以建立更多连接</div>
           </div>
           <el-empty v-if="insights.length === 0" description="暂无洞察" :image-size="40" />
         </div>
@@ -145,14 +175,24 @@ const loading = ref(false)
 const selectedNode = ref<any>(null)
 const colorMode = ref<'type' | 'community'>('community')
 const dataTab = ref('nodes')
+const searchQuery = ref('')
+const typeFilter = ref('')
 
 const typeColors: Record<string, string> = {
   entity: '#60a5fa', concept: '#c084fc', source: '#fb923c',
-  query: '#4ade80', synthesis: '#f87171', overview: '#facc15', other: '#94a3b8',
+  query: '#4ade80', synthesis: '#f87171', overview: '#facc15',
+  finding: '#f472b6', methodology: '#38bdf8', data: '#a78bfa', event: '#34d399',
+  other: '#94a3b8',
 }
 const typeLabels: Record<string, string> = {
   entity: '实体', concept: '概念', source: '来源',
-  query: '查询', synthesis: '综合', overview: '概述', other: '其他',
+  query: '查询', synthesis: '综合', overview: '概述',
+  finding: '发现', methodology: '方法', data: '数据', event: '事件',
+  other: '其他',
+}
+const entryTypeLabels: Record<string, string> = {
+  research_report: '研究报告', dynamic_info: '动态信息',
+  translation: '译丛译著', chart: '图表',
 }
 const communityColors = [
   '#60a5fa', '#4ade80', '#fb923c', '#c084fc', '#f87171',
@@ -176,21 +216,44 @@ function computeLinkCounts(nodes: any[], edges: any[]): Map<number, number> {
   return counts
 }
 
+const filteredNodes = computed(() => {
+  const nodes = graphData.value.nodes || []
+  let result = nodes
+  if (searchQuery.value) {
+    const q = searchQuery.value.toLowerCase()
+    result = result.filter((n: any) =>
+      (n.label || '').toLowerCase().includes(q) ||
+      (n.description || '').toLowerCase().includes(q)
+    )
+  }
+  if (typeFilter.value) {
+    result = result.filter((n: any) => n.nodeType === typeFilter.value)
+  }
+  return result
+})
+
 const chartOption = computed(() => {
   const nodes = graphData.value.nodes || []
   const edges = graphData.value.edges || []
   const linkCounts = computeLinkCounts(nodes, edges)
   const maxLinks = Math.max(1, ...linkCounts.values())
+  const q = searchQuery.value.toLowerCase()
+  const tf = typeFilter.value
 
-  const chartNodes = nodes.map((n: any) => ({
-    id: String(n.id),
-    name: n.label,
-    symbolSize: 12 + Math.sqrt((linkCounts.get(n.id) || 0) / maxLinks) * 28,
-    itemStyle: { color: getNodeColor(n) },
-    label: { show: (linkCounts.get(n.id) || 0) >= 2 || nodes.length <= 30 },
-    _raw: n,
-    linkCount: linkCounts.get(n.id) || 0,
-  }))
+  const chartNodes = nodes.map((n: any) => {
+    const matchesSearch = !q || (n.label || '').toLowerCase().includes(q) || (n.description || '').toLowerCase().includes(q)
+    const matchesType = !tf || n.nodeType === tf
+    const dimmed = (q || tf) && !(matchesSearch && matchesType)
+    return {
+      id: String(n.id),
+      name: n.label,
+      symbolSize: 12 + Math.sqrt((linkCounts.get(n.id) || 0) / maxLinks) * 28,
+      itemStyle: { color: getNodeColor(n), opacity: dimmed ? 0.15 : 1 },
+      label: { show: (linkCounts.get(n.id) || 0) >= 2 || nodes.length <= 30 },
+      _raw: n,
+      linkCount: linkCounts.get(n.id) || 0,
+    }
+  })
 
   const nodeIds = new Set(chartNodes.map((n: any) => n.id))
   const chartEdges = edges
@@ -237,12 +300,26 @@ function resetZoom() {
   chartRef.value?.dispatchAction({ type: 'restore' })
 }
 
+function getTopKeywords(members: any[]): string[] {
+  const keywordCounts: Record<string, number> = {}
+  for (const m of members) {
+    if (m.keywords && Array.isArray(m.keywords)) {
+      for (const kw of m.keywords) {
+        keywordCounts[kw] = (keywordCounts[kw] || 0) + 1
+      }
+    }
+  }
+  const entries = Object.entries(keywordCounts).sort((a, b) => b[1] - a[1])
+  if (entries.length > 0) return entries.slice(0, 3).map(e => e[0])
+  return members.slice(0, 3).map(m => m.label)
+}
+
 onMounted(async () => {
   loading.value = true
   try {
     const [graphRes, insightsRes] = await Promise.all([getKGGraph(), getKGInsights()])
     graphData.value = graphRes.data
-    insights.value = insightsRes.data || []
+    insights.value = [...new Map((insightsRes.data || []).map((i: any) => [i.title, i])).values()]
   } catch (e) { console.error(e) }
   loading.value = false
 })
@@ -297,6 +374,7 @@ onMounted(async () => {
 .insight-item { margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #F8FAFC; }
 .insight-title { font-size: 12px; font-weight: 600; margin: 4px 0 2px; color: #334155; }
 .insight-desc { font-size: 11px; color: #94A3B8; }
+.insight-suggestion { font-size: 11px; color: #f59e0b; margin-top: 2px; font-style: italic; }
 
 .type-badge { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
 .comm-dot-sm { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }

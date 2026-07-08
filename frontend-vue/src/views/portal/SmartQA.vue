@@ -31,7 +31,10 @@
         <div class="chat-panel">
           <div class="chat-header">
             <span class="chat-title">智能问答</span>
-            <span class="chat-hint">语义检索 · 多文档交叉验证 · 来源溯源</span>
+            <div class="chat-header-right">
+              <el-switch v-model="streamEnabled" size="small" active-text="流式" inactive-text="普通" @change="onStreamToggle" />
+              <span class="chat-hint">语义检索 · 多文档交叉验证 · 来源溯源</span>
+            </div>
           </div>
 
           <div class="chat-messages" ref="chatRef">
@@ -42,35 +45,15 @@
 
                 <!-- 助手消息 -->
                 <template v-else>
-                  <!-- 文字回答 -->
+                  <!-- 文字回答（表格由 LLM 通过 markdown 自然生成） -->
                   <div class="answer-text markdown-body" v-html="formatText(msg.content, 'assistant')" />
 
-                  <!-- 表格区域 -->
-                  <div v-if="msg.tables && msg.tables.length > 0" class="tables-section">
-                    <div v-for="(tbl, ti) in msg.tables" :key="'t'+ti" class="table-item">
-                      <div class="media-title">{{ tbl.title }}</div>
-                      <div class="markdown-table" v-html="renderMarkdownTable(tbl.table_markdown)" />
-                    </div>
+                  <!-- 置信度 -->
+                  <div v-if="msg.confidence" class="confidence">
+                    置信度: {{ (msg.confidence * 100).toFixed(0) }}%
                   </div>
 
-                  <!-- 图片区域：仅显示原图 -->
-                  <div v-if="msg.images && msg.images.length > 0" class="images-section">
-                    <div class="images-grid">
-                      <div v-for="(img, ii) in msg.images" :key="'i'+ii" class="image-wrapper" @click="previewImage(img)">
-                        <img
-                          :src="getImageUrl(img.media_path || '')"
-                          class="result-image"
-                          :alt="img.title || ''"
-                          @error="handleImageError"
-                        />
-                        <div class="image-error" style="display:none; padding:20px; background:#f5f5f5; text-align:center; color:#999; border-radius:4px;">
-                          图片加载失败: {{ img.media_path }}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <!-- 引用来源面板（参考 llm_wiki CitedReferencesPanel） -->
+                  <!-- 引用来源面板（回答结束后显示） -->
                   <div v-if="msg.sources && msg.sources.length > 0" class="references-panel">
                     <div class="references-header" @click="toggleRefs(i)">
                       <span class="references-icon">&#128196;</span>
@@ -96,9 +79,43 @@
                     </div>
                   </div>
 
-                  <!-- 置信度 -->
-                  <div v-if="msg.confidence" class="confidence">
-                    置信度: {{ (msg.confidence * 100).toFixed(0) }}%
+                  <!-- 图片区域（回答结束后显示） -->
+                  <div v-if="msg.images && msg.images.length > 0" class="images-section">
+                    <div class="images-header" @click="toggleImages(i)">
+                      <span class="images-icon">&#128444;</span>
+                      <span class="images-title">相关图片 ({{ msg.images.length }})</span>
+                      <span class="images-toggle">{{ expandedImages.has(i) ? '收起' : '展开' }}</span>
+                    </div>
+                    <div class="images-content" :class="{ collapsed: !expandedImages.has(i) }">
+                      <div class="images-grid">
+                        <div v-for="(img, ii) in msg.images" :key="'i'+ii" class="image-wrapper" @click="previewImage(img)">
+                          <img
+                            :src="getImageUrl(img.media_path || '')"
+                            class="result-image"
+                            :alt="img.title || ''"
+                            @error="handleImageError"
+                          />
+                          <div class="image-error" style="display:none; padding:20px; background:#f5f5f5; text-align:center; color:#999; border-radius:4px;">
+                            图片加载失败: {{ img.media_path }}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 表格面板（回答结束后显示，去重后仅显示未在回答中的表格） -->
+                  <div v-if="getFilteredTables(msg).length > 0" class="tables-section">
+                    <div class="tables-header" @click="toggleTables(i)">
+                      <span class="tables-icon">&#128202;</span>
+                      <span class="tables-title">相关表格 ({{ getFilteredTables(msg).length }})</span>
+                      <span class="tables-toggle">{{ expandedTables.has(i) ? '收起' : '展开' }}</span>
+                    </div>
+                    <div class="tables-content" :class="{ collapsed: !expandedTables.has(i) }">
+                      <div v-for="(tbl, ti) in getFilteredTables(msg)" :key="'t'+ti" class="table-item">
+                        <div class="media-title">{{ tbl.title }}</div>
+                        <div class="markdown-table" v-html="renderMarkdownTable(tbl.table_markdown)" />
+                      </div>
+                    </div>
                   </div>
                 </template>
               </div>
@@ -131,7 +148,7 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue'
 import { Delete } from '@element-plus/icons-vue'
-import { askQuestionStream, getQAChatSessions, getQAChatSession, deleteQAChatSession, getMediaUrl } from '../../api'
+import { askQuestion, askQuestionStream, getQAChatSessions, getQAChatSession, deleteQAChatSession, getMediaUrl, getSettings, updateSettings } from '../../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
 
@@ -148,6 +165,7 @@ interface Message {
   sources?: Array<{ title: string; library: string; source_name: string; source_origin?: string; index?: number; media_type?: string }>
   tables?: Array<{ id: number; title: string; table_markdown: string; source_origin: string; source_name: string; score: number }>
   images?: Array<{ id: number; caption: string; media_path: string; title: string; source_origin: string; source_name: string; score: number }>
+  _meta?: any  // 临时存储元数据
 }
 
 const messages = ref<Message[]>([])
@@ -157,15 +175,18 @@ const sessions = ref<any[]>([])
 const currentSessionId = ref('session_' + Date.now())
 const chatRef = ref<HTMLElement | null>(null)
 const expandedRefs = ref<Set<number>>(new Set())
+const expandedTables = ref<Set<number>>(new Set())
+const expandedImages = ref<Set<number>>(new Set())
 const previewVisible = ref(false)
 const previewUrl = ref('')
+const streamEnabled = ref(true) // 流式回答开关，默认开启
 
 function formatText(text: string, role: 'user' | 'assistant' = 'assistant'): string {
   if (!text) return ''
   if (role === 'user') {
     return text.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
   }
-  // assistant 消息使用 markdown 渲染
+  // assistant 消息使用 markdown 渲染，表格由 LLM 通过 markdown 自然生成
   return marked.parse(text) as string
 }
 
@@ -173,6 +194,25 @@ function formatText(text: string, role: 'user' | 'assistant' = 'assistant'): str
 function renderMarkdownTable(markdown: string): string {
   if (!markdown) return ''
   return marked.parse(markdown) as string
+}
+
+/** 过滤掉已在回答文本中包含的表格（去重） */
+function getFilteredTables(msg: Message): Array<any> {
+  if (!msg.tables || msg.tables.length === 0) return []
+  if (!msg.content) return msg.tables
+  const answerText = msg.content.toLowerCase()
+  return msg.tables.filter(tbl => {
+    // 检查表格标题是否已在回答中出现
+    if (tbl.title && answerText.includes(tbl.title.toLowerCase())) return false
+    // 检查表格内容的前几个关键词是否已在回答中出现
+    if (tbl.table_markdown) {
+      // 提取表格第一行的非标题内容作为特征
+      const lines = tbl.table_markdown.split('\n').filter((l: string) => l.includes('|')).slice(0, 3)
+      const tableText = lines.join(' ').toLowerCase()
+      if (tableText.length > 10 && answerText.includes(tableText.substring(0, 30))) return false
+    }
+    return true
+  })
 }
 
 /** 从media_path构建可访问的图片URL */
@@ -211,6 +251,24 @@ function toggleRefs(index: number) {
   }
 }
 
+/** 切换表格区域展开/折叠 */
+function toggleTables(index: number) {
+  if (expandedTables.value.has(index)) {
+    expandedTables.value.delete(index)
+  } else {
+    expandedTables.value.add(index)
+  }
+}
+
+/** 切换图片区域展开/折叠 */
+function toggleImages(index: number) {
+  if (expandedImages.value.has(index)) {
+    expandedImages.value.delete(index)
+  } else {
+    expandedImages.value.add(index)
+  }
+}
+
 /** 来源类型标签 */
 function refTypeLabel(mediaType: string): string {
   return { image: '图表', table: '表格', text: '文本' }[mediaType] || '文本'
@@ -224,7 +282,15 @@ function askQuestion() {
   messages.value.push({ role: 'user', content: q })
   question.value = ''
 
-  // 添加一个空的助手消息用于流式填充
+  if (streamEnabled.value) {
+    askWithStream(q)
+  } else {
+    askWithoutStream(q)
+  }
+}
+
+/** 流式问答 */
+function askWithStream(q: string) {
   const assistantMsg: Message = {
     role: 'assistant',
     content: '',
@@ -238,38 +304,84 @@ function askQuestion() {
 
   askQuestionStream(
     { question: q, sessionId: currentSessionId.value },
-    // onMeta: 收到元数据（来源、表格、图片）
     (meta) => {
-      messages.value[msgIndex].sources = meta.sources || []
-      messages.value[msgIndex].tables = meta.tables || []
-      messages.value[msgIndex].images = meta.images || []
+      messages.value[msgIndex]._meta = meta
       if (meta.sessionId) {
         currentSessionId.value = meta.sessionId
       }
     },
-    // onDelta: 收到文本片段
     (text) => {
       messages.value[msgIndex].content += text
-      // 自动滚动到底部
       nextTick().then(() => {
         if (chatRef.value) {
           chatRef.value.scrollTop = chatRef.value.scrollHeight
         }
       })
     },
-    // onDone: 流式完成
     (result) => {
       messages.value[msgIndex].content = result.answer
       messages.value[msgIndex].confidence = result.confidence
+      messages.value[msgIndex].sources = result.sources || []
+      const meta = messages.value[msgIndex]._meta
+      if (meta) {
+        messages.value[msgIndex].tables = meta.tables || []
+        messages.value[msgIndex].images = meta.images || []
+        if (meta.tables?.length > 0) expandedTables.value.add(msgIndex)
+        if (meta.images?.length > 0) expandedImages.value.add(msgIndex)
+        if (result.sources?.length > 0) expandedRefs.value.add(msgIndex)
+      }
       asking.value = false
       loadSessions()
     },
-    // onError: 错误处理
     (error) => {
       messages.value[msgIndex].content = '抱歉，系统暂时无法处理您的请求: ' + error
       asking.value = false
     }
   )
+}
+
+/** 非流式问答 */
+async function askWithoutStream(q: string) {
+  try {
+    const res = await askQuestion({ question: q, sessionId: currentSessionId.value })
+    const data = res.data
+    messages.value.push({
+      role: 'assistant',
+      content: data.answer || '',
+      confidence: data.confidence || 0,
+      sources: data.sources || [],
+      tables: data.tables || [],
+      images: data.images || [],
+    })
+    const msgIndex = messages.value.length - 1
+    if (data.sources?.length > 0) expandedRefs.value.add(msgIndex)
+    if (data.images?.length > 0) expandedImages.value.add(msgIndex)
+    // 非流式：表格去重后展示
+    if (data.tables?.length > 0) {
+      const filtered = getFilteredTables(messages.value[msgIndex])
+      if (filtered.length > 0) expandedTables.value.add(msgIndex)
+    }
+    asking.value = false
+    loadSessions()
+    nextTick().then(() => {
+      if (chatRef.value) {
+        chatRef.value.scrollTop = chatRef.value.scrollHeight
+      }
+    })
+  } catch (e: any) {
+    messages.value.push({
+      role: 'assistant',
+      content: '抱歉，系统暂时无法处理您的请求: ' + (e.message || '未知错误'),
+      confidence: 0,
+      sources: [],
+    })
+    asking.value = false
+  }
+}
+
+/** 流式开关切换时持久化到后端 */
+function onStreamToggle(val: boolean) {
+  updateSettings({ qa_stream_enabled: val ? 'true' : 'false' }).catch(() => {})
 }
 
 function newSession() {
@@ -321,7 +433,19 @@ async function deleteSession(sessionId: string) {
   }
 }
 
-onMounted(loadSessions)
+onMounted(async () => {
+  loadSessions()
+  // 从后端加载流式开关配置
+  try {
+    const res = await getSettings()
+    const settings = res.data || {}
+    if (settings.qa_stream_enabled !== undefined) {
+      streamEnabled.value = settings.qa_stream_enabled === 'true'
+    }
+  } catch (e) {
+    console.warn('加载流式配置失败，使用默认值', e)
+  }
+})
 </script>
 
 <style scoped>
@@ -368,6 +492,7 @@ onMounted(loadSessions)
   border-bottom: 1px solid #E2E8F0;
   display: flex; justify-content: space-between; align-items: center;
 }
+.chat-header-right { display: flex; align-items: center; gap: 12px; }
 .chat-title { font-weight: bold; color: #334155; }
 .chat-hint { font-size: 11px; color: #94A3B8; }
 
@@ -422,8 +547,59 @@ onMounted(loadSessions)
   border-top: 1px solid #E2E8F0;
 }
 
-/* 表格样式 */
+/* 嵌入回答中的表格样式 */
+.tables-inline {
+  margin-top: 16px;
+  border-top: 1px solid #E2E8F0;
+  padding-top: 16px;
+}
+.embedded-table {
+  margin: 12px 0;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  padding: 12px;
+}
+.table-caption {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 8px;
+}
+.embedded-table :deep(table) {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0;
+}
+.embedded-table :deep(th),
+.embedded-table :deep(td) {
+  border: 1px solid #E2E8F0;
+  padding: 8px 12px;
+  text-align: left;
+}
+.embedded-table :deep(th) {
+  background: #F1F5F9;
+  font-weight: 600;
+}
+
+/* 表格区域样式 */
 .tables-section { margin-top: 10px; }
+.tables-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  background: #FAFBFC;
+}
+.tables-header:hover { background: #F1F5F9; }
+.tables-icon { font-size: 14px; }
+.tables-title { font-size: 12px; font-weight: 600; color: #475569; flex: 1; }
+.tables-toggle { font-size: 11px; color: #94A3B8; }
+.tables-content { margin-top: 8px; }
+.tables-content.collapsed { display: none; }
 .table-item {
   margin-bottom: 10px;
   padding: 10px;
@@ -448,8 +624,24 @@ onMounted(loadSessions)
   font-weight: 600;
 }
 
-/* 图片网格 */
+/* 图片区域样式 */
 .images-section { margin-top: 10px; }
+.images-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  background: #FAFBFC;
+}
+.images-header:hover { background: #F1F5F9; }
+.images-icon { font-size: 14px; }
+.images-title { font-size: 12px; font-weight: 600; color: #475569; flex: 1; }
+.images-toggle { font-size: 11px; color: #94A3B8; }
+.images-content { margin-top: 8px; }
+.images-content.collapsed { display: none; }
 .images-grid {
   display: flex;
   flex-wrap: wrap;

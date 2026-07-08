@@ -3,6 +3,7 @@ package com.intelligence.platform.controller;
 import com.intelligence.platform.entity.Document;
 import com.intelligence.platform.entity.KnowledgeEntry;
 import com.intelligence.platform.mapper.DocumentMapper;
+import com.intelligence.platform.mapper.KnowledgeEntryMapper;
 import com.intelligence.platform.service.DocumentParseService;
 import com.intelligence.platform.service.FileValidationService;
 import com.intelligence.platform.service.UploadTaskService;
@@ -28,6 +29,9 @@ public class UploadController {
 
     @Autowired
     private DocumentMapper documentMapper;
+
+    @Autowired
+    private KnowledgeEntryMapper knowledgeEntryMapper;
 
     @Autowired
     private DocumentParseService documentParseService;
@@ -149,7 +153,8 @@ public class UploadController {
             @RequestParam(defaultValue = "") String sourceOrigin,
             @RequestParam(required = false) Long sourceDocId,
             @RequestParam(required = false) Integer sourcePage,
-            @RequestParam(defaultValue = "") String fileType) throws Exception {
+            @RequestParam(defaultValue = "") String fileType,
+            @RequestParam(defaultValue = "false") boolean forceReprocess) throws Exception {
 
         // 文件校验
         FileValidationService.ValidationResult validation = fileValidationService.validate(file);
@@ -165,13 +170,21 @@ public class UploadController {
         byte[] content = file.getBytes();
         String fileHash = sha256(content);
 
-        // 检查是否已存在相同哈希
+        // 检查是否已存在相同哈希（除非强制重新处理）
         List<Document> existing = documentMapper.selectList(
                 new LambdaQueryWrapper<Document>().eq(Document::getFileHash, fileHash));
-        if (!existing.isEmpty()) {
+        if (!existing.isEmpty() && !forceReprocess) {
             return Map.of("status", "skipped",
                     "message", "文件内容未变更，已跳过: " + existing.get(0).getTitle(),
                     "existing_id", existing.get(0).getId());
+        }
+        
+        // 如果强制重新处理且文档已存在，删除旧的知识条目
+        if (!existing.isEmpty() && forceReprocess) {
+            Long existingDocId = existing.get(0).getId();
+            knowledgeEntryMapper.delete(
+                    new LambdaQueryWrapper<KnowledgeEntry>().eq(KnowledgeEntry::getDocumentId, existingDocId));
+            documentMapper.deleteById(existingDocId);
         }
 
         // 保存文件到 raw/sources/ 目录（参考 llm_wiki 来源管理）

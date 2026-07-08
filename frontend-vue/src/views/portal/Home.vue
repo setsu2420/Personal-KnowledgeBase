@@ -101,9 +101,10 @@
             <template v-if="lib.key === 'chart'">
               <div v-if="docList[lib.key] && docList[lib.key].length > 0" class="doc-preview horizontal-scroll">
                 <div v-for="doc in (docList[lib.key] || [])" :key="doc.id" class="doc-card chart-card" @click="handleDocClick(doc)">
-                  <div class="doc-cover-wrapper chart-cover" style="height: 100%; border-bottom: none;">
+                  <div class="doc-cover-wrapper chart-cover" style="border-bottom: none;">
                     <img :src="getDocFileUrl(doc.id)" class="doc-cover-img" alt="Chart Preview" />
                   </div>
+                  <div v-if="doc.tableMarkdown" class="table-preview-mini" v-html="renderTablePreview(doc.tableMarkdown)"></div>
                 </div>
               </div>
               <div v-else class="doc-empty">暂无上传图表</div>
@@ -394,7 +395,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, reactive, watch } from 'vue'
 import { Search, UploadFilled, Loading, Picture, Grid, FolderOpened } from '@element-plus/icons-vue'
-import { getKnowledgeEntries, updateTableMarkdown, getMediaUrl, getDocuments, uploadFile, getDocFileUrl } from '../../api'
+import { getKnowledgeEntries, getKnowledgeEntry, updateTableMarkdown, getMediaUrl, getDocuments, uploadFile, getDocFileUrl } from '../../api'
 import { ElMessage } from 'element-plus'
 import { marked } from 'marked'
 import { isTauri, openFileAsFiles, DOC_FILTERS, sendNotification } from '../../composables/useTauri'
@@ -603,6 +604,11 @@ function renderMarkdownContent(md: string): string {
   return marked.parse(md) as string
 }
 
+function renderTablePreview(markdown: string): string {
+  if (!markdown) return ''
+  return marked.parse(markdown) as string
+}
+
 function getTypeStyle(type: string) {
   const t = (type || '').toLowerCase()
   switch (t) {
@@ -629,14 +635,26 @@ function getTypeStyle(type: string) {
   }
 }
 
-function navigateToRelated(relatedTitle: string) {
+async function navigateToRelated(relatedTitle: string) {
   if (!relatedTitle) return
+  // 首先在当前已加载的词条列表中查找
   const found = entries.value.find(e => e.title === relatedTitle || e.title.trim().toLowerCase() === relatedTitle.trim().toLowerCase())
   if (found) {
     showDetail(found)
-  } else {
-    ElMessage.warning(`未找到词条: ${relatedTitle}`)
+    return
   }
+  // 如果本地未找到，通过API搜索
+  try {
+    const res = await getKnowledgeEntries({ keyword: relatedTitle, page: 1, pageSize: 1 })
+    const items = res.data?.items || []
+    if (items.length > 0) {
+      showDetail(items[0])
+      return
+    }
+  } catch (e) {
+    console.warn('API搜索关联词条失败:', e)
+  }
+  ElMessage.warning(`未找到词条: ${relatedTitle}`)
 }
 
 function startEditTable() {
@@ -705,6 +723,27 @@ async function loadDocStats() {
     } catch (e) {
       console.error(e)
     }
+  }
+  // 图表库：从知识条目中加载 tableMarkdown 并合并到文档对象上
+  await loadChartTableMarkdown()
+}
+
+/** 为图表库文档补充 tableMarkdown（知识条目才有此字段，通过 documentId 关联） */
+async function loadChartTableMarkdown() {
+  const chartDocs = docList.value['chart']
+  if (!chartDocs || chartDocs.length === 0) return
+  try {
+    // 获取所有知识条目，按 documentId 匹配图表文档
+    const res = await getKnowledgeEntries({ page: 1, pageSize: 500 })
+    const entries = res.data?.items || []
+    for (const doc of chartDocs) {
+      const entry = entries.find((e: any) => e.documentId === doc.id)
+      if (entry && entry.tableMarkdown) {
+        doc.tableMarkdown = entry.tableMarkdown
+      }
+    }
+  } catch (e) {
+    console.error('加载图表表格数据失败:', e)
   }
 }
 
@@ -1452,6 +1491,11 @@ onMounted(async () => {
   border-radius: 6px;
   border: 1px solid #f1f5f9;
 }
+
+.table-preview-mini { font-size: 11px; max-height: 150px; overflow: auto; border-top: 1px solid #E2E8F0; padding: 6px; }
+.table-preview-mini :deep(table) { width: 100%; border-collapse: collapse; font-size: 10px; }
+.table-preview-mini :deep(th), .table-preview-mini :deep(td) { border: 1px solid #E2E8F0; padding: 2px 4px; text-align: left; }
+.table-preview-mini :deep(th) { background: #F1F5F9; font-weight: bold; }
 </style>
 
 <style>

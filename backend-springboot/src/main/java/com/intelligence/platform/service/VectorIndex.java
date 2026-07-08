@@ -172,7 +172,11 @@ public class VectorIndex {
                     Map<String, String> meta = new HashMap<>();
                     if (entry.has("metadata")) {
                         var metaNode = entry.get("metadata");
-                        metaNode.fields().forEachRemaining(f -> meta.put(f.getKey(), f.getValue().asText()));
+                        metaNode.fields().forEachRemaining(f -> {
+                            String key = f.getKey();
+                            String value = f.getValue().asText();
+                            meta.put(key, value);
+                        });
                     }
 
                     vectors.put(id, vec);
@@ -181,6 +185,11 @@ public class VectorIndex {
             }
 
             log.info("向量索引已加载: {} 个向量, 维度 {}", vectors.size(), dimension);
+            // 调试：检查第一个条目的元数据
+            if (!metadata.isEmpty()) {
+                Long firstId = metadata.keySet().iterator().next();
+                log.debug("第一个条目的元数据: id={}, metadata={}", firstId, metadata.get(firstId));
+            }
         } catch (IOException e) {
             log.error("加载向量索引失败: {}", e.getMessage());
         }

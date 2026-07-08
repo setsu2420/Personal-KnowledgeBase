@@ -182,27 +182,45 @@ public class VectorSearchService {
         }
 
         float[] queryVector = generateEmbedding(query);
-        // 先取较多的候选（topK * 2），以便阈值过滤后仍有足够结果
-        int candidateK = mediaType != null ? topK * 3 : topK;
+        // 获取足够多的候选结果
+        int candidateK = Math.min(topK * 10, index.size()); // 扩大候选范围
         List<VectorIndex.SearchResult> candidates = index.search(queryVector, candidateK);
 
-        // 应用阈值过滤
-        List<VectorIndex.SearchResult> filtered = candidates.stream()
-                .filter(r -> r.score() >= threshold)
-                .toList();
+        log.info("向量搜索 [{}] - 候选: {} 个", mediaType, candidates.size());
 
         // 应用媒体类型过滤
+        List<VectorIndex.SearchResult> afterTypeFilter;
         if (mediaType != null) {
-            filtered = filtered.stream()
+            afterTypeFilter = candidates.stream()
                     .filter(r -> {
                         String type = r.metadata() != null ? r.metadata().get("mediaType") : null;
                         return mediaType.equals(type);
                     })
                     .toList();
+            log.info("向量搜索 [{}] - 类型过滤后: {} 个", mediaType, afterTypeFilter.size());
+        } else {
+            afterTypeFilter = candidates;
         }
 
+        // 打印所有候选结果的分数（用于调试）
+        if (log.isDebugEnabled()) {
+            for (int i = 0; i < Math.min(10, afterTypeFilter.size()); i++) {
+                var r = afterTypeFilter.get(i);
+                log.debug("  [{}] 分数={:.3f}, title={}", i + 1, r.score(), r.metadata().get("title"));
+            }
+        }
+
+        // 应用阈值过滤
+        List<VectorIndex.SearchResult> filtered = afterTypeFilter.stream()
+                .filter(r -> r.score() >= threshold)
+                .toList();
+
+        log.info("向量搜索 [{}] - 阈值过滤后(>={}): {} 个", mediaType, threshold, filtered.size());
+
         // 截取 topK
-        return filtered.stream().limit(topK).toList();
+        List<VectorIndex.SearchResult> finalResults = filtered.stream().limit(topK).toList();
+        log.info("向量搜索 [{}] - 最终返回: {} 个", mediaType, finalResults.size());
+        return finalResults;
     }
 
     /**

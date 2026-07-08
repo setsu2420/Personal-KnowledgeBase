@@ -215,24 +215,8 @@ public class DocumentParseService {
 
         String sourceOrigin = buildSourceOrigin(doc);
 
-        // 特殊处理：独立图片文件
-        if (List.of("jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif", "svg").contains(extension)) {
-            byte[] imgData = Files.readAllBytes(Path.of(doc.getFilePath()));
-            boolean isTable = "table".equals(fileTypeHint) || doc.getTitle().contains("table") || doc.getTitle().contains("ljyt");
-            KnowledgeEntry entry;
-            if (isTable) {
-                entry = imageService.processTableImage(imgData, doc.getTitle(), sourceOrigin, library, doc.getId(), doc.getProjectId());
-            } else {
-                entry = imageService.processStandaloneImage(imgData, doc.getTitle(), sourceOrigin, library, doc.getId(), doc.getProjectId());
-            }
-            entries.add(entry);
-            doc.setStatus("extracted");
-            documentMapper.updateById(doc);
-            return entries;
-        }
-
-        // 特殊处理：CSV文件
-        if ("csv".equals(extension)) {
+        // 特殊处理：CSV/Excel文件 → 直接转为Markdown表格
+        if (List.of("csv", "xls", "xlsx", "et").contains(extension)) {
             String markdown = imageService.excelToMarkdown(Path.of(doc.getFilePath()));
             KnowledgeEntry entry = new KnowledgeEntry();
             entry.setTitle(doc.getTitle());
@@ -240,8 +224,8 @@ public class DocumentParseService {
             entry.setEntryLibrary(library);
             entry.setDocumentId(doc.getId());
             entry.setSourceName(doc.getTitle());
-            entry.setContent("表格数据（CSV格式）");
-            entry.setKeywords("表格,CSV");
+            entry.setContent("表格数据（" + extension.toUpperCase() + "格式）");
+            entry.setKeywords("表格," + extension.toUpperCase());
             entry.setStatus(isAutoApprove() ? "approved" : "pending");
             entry.setConfidence(0.9);
             entry.setCreatedAt(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
@@ -254,6 +238,23 @@ public class DocumentParseService {
             vectorSearchService.indexEntry(entry);
             entries.add(entry);
             
+            doc.setStatus("extracted");
+            documentMapper.updateById(doc);
+            return entries;
+        }
+
+        // 特殊处理：独立图片文件
+        if (List.of("jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif", "svg").contains(extension)) {
+            byte[] imgData = Files.readAllBytes(Path.of(doc.getFilePath()));
+            boolean isTable = "table".equals(fileTypeHint);
+            KnowledgeEntry entry;
+            if (isTable) {
+                // 使用VLM进行OCR表格识别
+                entry = imageService.processTableImage(imgData, doc.getTitle(), sourceOrigin, library, doc.getId(), doc.getProjectId());
+            } else {
+                entry = imageService.processStandaloneImage(imgData, doc.getTitle(), sourceOrigin, library, doc.getId(), doc.getProjectId());
+            }
+            entries.add(entry);
             doc.setStatus("extracted");
             documentMapper.updateById(doc);
             return entries;
@@ -903,13 +904,21 @@ public class DocumentParseService {
                     if (node.has("related") && node.get("related").isArray()) {
                         List<String> relList = new ArrayList<>();
                         for (JsonNode r : node.get("related")) {
-                            relList.add(r.asText());
+                            String relText = r.asText().trim();
+                            if (!relText.isEmpty() && !"None".equalsIgnoreCase(relText) && !"null".equalsIgnoreCase(relText)) {
+                                relList.add(relText);
+                            }
                         }
-                        entry.setRelated(String.join(",", relList));
+                        entry.setRelated(relList.isEmpty() ? null : String.join(",", relList));
                     } else if (node.has("related")) {
-                        entry.setRelated(node.get("related").asText());
+                        String relText = node.get("related").asText().trim();
+                        if (relText.isEmpty() || "None".equalsIgnoreCase(relText) || "null".equalsIgnoreCase(relText)) {
+                            entry.setRelated(null);
+                        } else {
+                            entry.setRelated(relText);
+                        }
                     } else {
-                        entry.setRelated("");
+                        entry.setRelated(null);
                     }
                     
                     entry.setCategoryL1(doc.getCategoryL1());
