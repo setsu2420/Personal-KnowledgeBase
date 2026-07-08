@@ -4,3 +4,4 @@ mineru[core]>=3.1
 marker-pdf>=1.0
 beautifulsoup4>=4.12
 lxml>=5.0
+# paddleocr-vl  # 可选：本地表格 OCR 后备（pip install paddleocr-vl）

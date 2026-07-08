@@ -239,6 +239,7 @@
 ### 环境要求
 
 - **Java 21+**（后端运行依赖）
+- **MySQL 8.0+**（数据库，安装后创建 `intelligence_platform` 数据库）
 - LLM API 密钥（DeepSeek、OpenAI 或其他 OpenAI 兼容服务商）
 - 向量嵌入 API 密钥（SiliconFlow 或其他服务商，可选）
 
@@ -255,6 +256,7 @@
 ### 前置条件
 
 - **Java 21+** 和 Maven 3.8+
+- **MySQL 8.0+**（`brew install mysql && brew services start mysql`，然后 `mysql -u root -e "CREATE DATABASE intelligence_platform CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"`）
 - **Node.js 18+** 和 npm 9+
 - **Rust 1.70+** 和 Cargo
 - LLM API 密钥
@@ -332,6 +334,64 @@ cd frontend-vue && npm run dev
 访问 `http://localhost:5173`：
 - 前台：`http://localhost:5173/portal`
 - 后台：`http://localhost:5173/admin`
+
+## Web 模式（浏览器访问）
+
+除了 Tauri 桌面应用外，本平台还支持 **Web 模式**，完全在浏览器中运行 —— 无需安装任何桌面应用。适用于服务器部署、远程访问，或偏好浏览器操作的用户。
+
+### 优势
+
+- **零安装** — 无需下载安装包，启动服务即可使用
+- **跨平台** — 任何现代浏览器（Chrome、Firefox、Safari、Edge）均可访问
+- **多设备** — 同一局域网内的其他设备也可通过 IP 地址访问
+- **功能完整** — 所有分析功能与桌面版完全一致
+
+### 快速启动
+
+使用提供的启动脚本一键启动：
+
+```bash
+./start-web.sh
+```
+
+脚本会自动完成以下步骤：
+1. 检查 MySQL 服务，如未运行则自动启动
+2. 检查数据库，如不存在则自动创建
+3. 启动 Spring Boot 后端（端口 8080）
+4. 等待后端就绪
+5. 启动 Vue 前端（端口 5173）
+
+### 手动启动
+
+也可以分别启动前后端：
+
+```bash
+# 终端 1：启动后端
+cd backend-springboot && ./mvnw spring-boot:run
+
+# 终端 2：启动前端
+cd frontend-vue && npm run dev
+```
+
+### 访问地址
+
+启动后在浏览器中打开：
+
+| 工作空间 | 地址 |
+|---------|------|
+| 前台（分析工作台） | http://localhost:5173/portal |
+| 后台（管理工作台） | http://localhost:5173/admin |
+| 后端 API | http://localhost:8080/api |
+| 健康检查 | http://localhost:8080/api/health |
+
+### 停止服务
+
+如果通过 `./start-web.sh` 启动，按 `Ctrl+C` 即可停止所有服务。手动启动时需分别终止：
+
+```bash
+kill <后端PID>   # 停止后端
+kill <前端PID>   # 停止前端
+```
 
 ## 配置说明
 

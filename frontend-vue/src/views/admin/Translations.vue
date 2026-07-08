@@ -35,6 +35,9 @@
             <el-button type="danger" size="small" link @click="handleDelete(row.id)">删除</el-button>
           </template>
         </el-table-column>
+        <template #empty>
+          <el-empty description="暂无翻译文件，请先上传" :image-size="80" />
+        </template>
       </el-table>
       <el-pagination style="margin-top: 16px; justify-content: flex-end;" layout="total, prev, pager, next"
         :total="total" :page-size="pageSize" v-model:current-page="page" @current-change="loadData" />

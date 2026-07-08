@@ -10,6 +10,10 @@ import com.intelligence.platform.service.VectorSearchService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -20,6 +24,8 @@ import java.util.Map;
 @RequestMapping("/api/knowledge-entries")
 @CrossOrigin(origins = "*")
 public class KnowledgeEntryController {
+
+    private static final Logger log = LoggerFactory.getLogger(KnowledgeEntryController.class);
 
     @Autowired
     private KnowledgeEntryMapper knowledgeEntryMapper;
@@ -50,7 +56,7 @@ public class KnowledgeEntryController {
         // 项目隔离
         Long pid = projectContext.getCurrentProjectId();
         if (pid != null) wrapper.eq(KnowledgeEntry::getProjectId, pid);
-        if (library != null && !library.isEmpty()) wrapper.eq(KnowledgeEntry::getLibrary, library);
+        if (library != null && !library.isEmpty()) wrapper.eq(KnowledgeEntry::getEntryLibrary, library);
         if (entryType != null && !entryType.isEmpty()) wrapper.eq(KnowledgeEntry::getEntryType, entryType);
         if (status != null && !status.isEmpty()) wrapper.eq(KnowledgeEntry::getStatus, status);
         if (keyword != null && !keyword.isEmpty()) {
@@ -62,9 +68,7 @@ public class KnowledgeEntryController {
 
         Page<KnowledgeEntry> pageObj = new Page<>(page, pageSize);
         Page<KnowledgeEntry> result = knowledgeEntryMapper.selectPage(pageObj, wrapper);
-        // SQLite 不支持 COUNT(*) 在 selectPage 中，使用 items.size() 作为 fallback
-        long total = result.getTotal() > 0 ? result.getTotal() : result.getRecords().size();
-        return new PageResult<>(total, page, pageSize, result.getRecords());
+        return new PageResult<>(result.getTotal(), page, pageSize, result.getRecords());
     }
 
     /**
@@ -74,10 +78,10 @@ public class KnowledgeEntryController {
     public Map<String, Long> statsByLibrary() {
         Long pid = projectContext.getCurrentProjectId();
 
-        LambdaQueryWrapper<KnowledgeEntry> reportW = new LambdaQueryWrapper<KnowledgeEntry>().eq(KnowledgeEntry::getLibrary, "report");
-        LambdaQueryWrapper<KnowledgeEntry> dynamicW = new LambdaQueryWrapper<KnowledgeEntry>().eq(KnowledgeEntry::getLibrary, "dynamic");
-        LambdaQueryWrapper<KnowledgeEntry> translationW = new LambdaQueryWrapper<KnowledgeEntry>().eq(KnowledgeEntry::getLibrary, "translation");
-        LambdaQueryWrapper<KnowledgeEntry> chartW = new LambdaQueryWrapper<KnowledgeEntry>().eq(KnowledgeEntry::getLibrary, "chart");
+        LambdaQueryWrapper<KnowledgeEntry> reportW = new LambdaQueryWrapper<KnowledgeEntry>().eq(KnowledgeEntry::getEntryLibrary, "report");
+        LambdaQueryWrapper<KnowledgeEntry> dynamicW = new LambdaQueryWrapper<KnowledgeEntry>().eq(KnowledgeEntry::getEntryLibrary, "dynamic");
+        LambdaQueryWrapper<KnowledgeEntry> translationW = new LambdaQueryWrapper<KnowledgeEntry>().eq(KnowledgeEntry::getEntryLibrary, "translation");
+        LambdaQueryWrapper<KnowledgeEntry> chartW = new LambdaQueryWrapper<KnowledgeEntry>().eq(KnowledgeEntry::getEntryLibrary, "chart");
 
         if (pid != null) {
             reportW.eq(KnowledgeEntry::getProjectId, pid);
@@ -100,12 +104,98 @@ public class KnowledgeEntryController {
 
     /**
      * 手动创建词条（后台管理员）
+     * 创建成功后自动更新相关图表资料的标签（智能标签功能）
      */
     @PostMapping("/")
     public Map<String, Object> create(@RequestBody KnowledgeEntry entry) {
         knowledgeEntryMapper.insert(entry);
+        // 新词条创建后，自动更新相关图表资料的标签
+        updateChartEntryTags(entry);
         syncKG();
         return Map.of("id", entry.getId(), "message", "创建成功");
+    }
+
+    /**
+     * 新词条创建后，自动更新相关图表资料的标签
+     * 根据新词条的关键词，匹配图表库中相关词条并更新其keywords字段
+     * 匹配逻辑：新词条的关键词在图表词条的标题或内容中出现时，将该关键词追加到图表词条的标签中
+     */
+    private void updateChartEntryTags(KnowledgeEntry newEntry) {
+        try {
+            if (newEntry.getProjectId() == null) return;
+            if ((newEntry.getKeywords() == null || newEntry.getKeywords().isEmpty())
+                    && (newEntry.getTitle() == null || newEntry.getTitle().isEmpty())) {
+                return;
+            }
+
+            // 查询同项目下所有图表库词条
+            LambdaQueryWrapper<KnowledgeEntry> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(KnowledgeEntry::getProjectId, newEntry.getProjectId())
+                   .eq(KnowledgeEntry::getEntryLibrary, "chart");
+            List<KnowledgeEntry> chartEntries = knowledgeEntryMapper.selectList(wrapper);
+
+            if (chartEntries.isEmpty()) return;
+
+            // 收集新词条的关键词列表
+            List<String> newKeywords = new ArrayList<>();
+            if (newEntry.getKeywords() != null && !newEntry.getKeywords().isEmpty()) {
+                for (String kw : newEntry.getKeywords().split(",")) {
+                    String trimmed = kw.trim();
+                    if (!trimmed.isEmpty() && trimmed.length() >= 2) {
+                        newKeywords.add(trimmed);
+                    }
+                }
+            }
+            // 也将新词条标题作为匹配关键词
+            if (newEntry.getTitle() != null && !newEntry.getTitle().isEmpty()) {
+                newKeywords.add(newEntry.getTitle());
+            }
+
+            if (newKeywords.isEmpty()) return;
+
+            int updatedCount = 0;
+            for (KnowledgeEntry chartEntry : chartEntries) {
+                // 构建图表词条的文本（标题+内容），用于关键词匹配
+                String chartText = (chartEntry.getTitle() != null ? chartEntry.getTitle() : "") + " " +
+                                   (chartEntry.getContent() != null ? chartEntry.getContent() : "");
+
+                // 检查新词条的关键词是否与图表词条相关
+                List<String> matchedTags = new ArrayList<>();
+                for (String keyword : newKeywords) {
+                    if (chartText.contains(keyword)) {
+                        matchedTags.add(keyword);
+                    }
+                }
+
+                if (!matchedTags.isEmpty()) {
+                    String existingKeywords = chartEntry.getKeywords() != null ? chartEntry.getKeywords() : "";
+                    StringBuilder merged = new StringBuilder(existingKeywords);
+
+                    for (String tag : matchedTags) {
+                        if (!existingKeywords.contains(tag)) {
+                            if (merged.length() > 0) merged.append(",");
+                            merged.append(tag);
+                        }
+                    }
+
+                    if (!merged.toString().equals(existingKeywords)) {
+                        chartEntry.setKeywords(merged.toString());
+                        knowledgeEntryMapper.updateById(chartEntry);
+                        updatedCount++;
+                        log.info("Smart tags: updated chart entry '{}' (id={}) with tags: {}",
+                                chartEntry.getTitle(), chartEntry.getId(), merged);
+                    }
+                }
+            }
+
+            if (updatedCount > 0) {
+                log.info("Smart tags: updated {} chart entries based on new entry '{}'",
+                        updatedCount, newEntry.getTitle());
+            }
+        } catch (Exception e) {
+            // 标签更新失败不影响主流程
+            log.warn("Smart tags: failed to update chart entry tags: {}", e.getMessage());
+        }
     }
 
     /**

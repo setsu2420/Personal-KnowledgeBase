@@ -9,16 +9,21 @@ import com.intelligence.platform.mapper.QARecordMapper;
 import com.intelligence.platform.mapper.SettingMapper;
 import com.intelligence.platform.service.ImageService;
 import com.intelligence.platform.service.LlmService;
+import com.intelligence.platform.service.ProjectContext;
 import com.intelligence.platform.service.VectorIndex;
 import com.intelligence.platform.service.VectorSearchService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
 /**
@@ -47,6 +52,8 @@ public class QAChatController {
     private VectorSearchService vectorSearchService;
     @Autowired
     private ImageService imageService;
+    @Autowired
+    private ProjectContext projectContext;
 
     /**
      * 从settings表获取配置值
@@ -146,7 +153,7 @@ public class QAChatController {
                 src.put("index", srcIdx + 1);
                 src.put("entry_id", e.getId());
                 src.put("title", e.getTitle());
-                src.put("library", e.getLibrary() != null ? e.getLibrary() : "");
+                src.put("library", e.getEntryLibrary() != null ? e.getEntryLibrary() : "");
                 src.put("media_type", e.getMediaType() != null ? e.getMediaType() : "text");
                 src.put("source_name", e.getSourceName() != null ? e.getSourceName() : "");
                 src.put("source_origin", e.getSourceOrigin() != null ? e.getSourceOrigin() : "");
@@ -186,6 +193,153 @@ public class QAChatController {
                     "tables", List.of(),
                     "images", List.of());
         }
+    }
+
+    private static final ExecutorService streamExecutor = Executors.newCachedThreadPool();
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * 流式问答端点（SSE）
+     * 前端通过 fetch + ReadableStream 消费
+     *
+     * SSE 事件格式：
+     *   event: meta    data: {"sources":[...],"tables":[...],"images":[...],"sessionId":"..."}
+     *   event: delta   data: {"text":"..."}
+     *   event: done    data: {"answer":"完整回答","confidence":0.95}
+     *   event: error   data: {"message":"错误信息"}
+     */
+    @PostMapping(value = "/ask/stream", produces = "text/event-stream")
+    public SseEmitter askStream(@RequestBody Map<String, Object> body) {
+        String question = (String) body.get("question");
+        String sessionId = (String) body.get("sessionId");
+        if (sessionId == null || sessionId.isEmpty()) {
+            sessionId = UUID.randomUUID().toString();
+        }
+
+        SseEmitter emitter = new SseEmitter(300_000L); // 5分钟超时
+        final String finalSessionId = sessionId;
+
+        streamExecutor.execute(() -> {
+            try {
+                // 1. 知识检索
+                int maxEntries = getSettingInt("qa_max_entries", 20);
+                int imageTopK = getSettingInt("qa_image_top_k", 5);
+                float imageThreshold = getSettingFloat("qa_image_threshold", 0.6f);
+                int tableTopK = getSettingInt("qa_table_top_k", 3);
+                float tableThreshold = getSettingFloat("qa_table_threshold", 0.6f);
+
+                List<KnowledgeEntry> relevantEntries = searchRelevantEntries(question, maxEntries);
+                String context = buildContext(relevantEntries);
+
+                List<Map<String, Object>> imageResults = imageTopK > 0
+                        ? searchImages(question, imageTopK, imageThreshold) : List.of();
+                List<Map<String, Object>> tableResults = tableTopK > 0
+                        ? searchTables(question, tableTopK, tableThreshold) : List.of();
+
+                // 2. 发送 meta 事件（来源、表格、图片信息）
+                String systemPrompt = """
+                        你是一个专业的智能情报分析助手。请基于以下知识库内容回答用户的问题。
+
+                        引用规则（严格遵守）：
+                        1. 引用信息时，使用方括号编号标注来源，例如 [1]、[2]
+                        2. 不要在正文中写出来源名称或文件名，只用编号
+                        3. 不要在回答中嵌入"来源：xxx"等文字
+                        4. 在回答最末尾添加一个隐藏注释，格式为：<!-- cited: 1, 2, 3 -->，列出你引用的所有编号
+
+                        回答格式要求：
+                        1. 先进行文字分析，引用相关文献
+                        2. 如果知识库中有相关表格数据，使用 Markdown 表格展示
+                        3. 如果知识库中有相关图片，在回答末尾用 ![描述](media-id:xxx) 引用
+                        4. 如果知识库中没有相关信息，请诚实说明
+
+                        知识库上下文：
+                        """ + context;
+
+                // 构建丰富的来源列表（与非流式接口格式一致）
+                List<Map<String, Object>> sources = buildSourceList(relevantEntries);
+
+                Map<String, Object> meta = new HashMap<>();
+                meta.put("sessionId", finalSessionId);
+                meta.put("sources", sources);
+                meta.put("images", imageResults);
+                meta.put("tables", tableResults);
+                emitter.send(SseEmitter.event().name("meta").data(objectMapper.writeValueAsString(meta)));
+
+                // 3. 流式调用 LLM
+                StringBuilder fullAnswer = new StringBuilder();
+                llmService.streamChatWithActive(systemPrompt, question, chunk -> {
+                    try {
+                        fullAnswer.append(chunk);
+                        Map<String, String> delta = Map.of("text", chunk);
+                        emitter.send(SseEmitter.event().name("delta")
+                                .data(objectMapper.writeValueAsString(delta)));
+                    } catch (Exception e) {
+                        log.warn("发送流式数据失败: {}", e.getMessage());
+                    }
+                });
+
+                // 4. 清理回答并发送 done 事件
+                String cleanedAnswer = cleanAnswer(fullAnswer.toString());
+                double confidence = relevantEntries.isEmpty() ? 0.3
+                        : Math.min(0.95, 0.5 + relevantEntries.size() * 0.05);
+
+                Map<String, Object> doneData = new HashMap<>();
+                doneData.put("answer", cleanedAnswer);
+                doneData.put("confidence", Math.round(confidence * 100.0) / 100.0);
+                emitter.send(SseEmitter.event().name("done").data(objectMapper.writeValueAsString(doneData)));
+
+                // 5. 保存问答记录
+                try {
+                    QARecord record = new QARecord();
+                    record.setProjectId(projectContext.getCurrentProjectId());
+                    record.setQuestion(question);
+                    record.setAnswer(cleanedAnswer);
+                    record.setConfidence(confidence);
+                    record.setSessionId(finalSessionId);
+                    record.setSources(objectMapper.writeValueAsString(buildSourceList(relevantEntries)));
+                    record.setUserName("分析人员");
+                    qaRecordMapper.insert(record);
+                } catch (Exception e) {
+                    log.warn("保存问答记录失败: {}", e.getMessage());
+                }
+
+                emitter.complete();
+
+            } catch (Exception e) {
+                try {
+                    Map<String, String> err = Map.of("message", e.getMessage());
+                    emitter.send(SseEmitter.event().name("error")
+                            .data(objectMapper.writeValueAsString(err)));
+                } catch (Exception ignored) {}
+                emitter.completeWithError(e);
+            }
+        });
+
+        return emitter;
+    }
+
+    /**
+     * 构建来源列表（用于保存问答记录）
+     * 返回与流式接口一致的丰富格式
+     */
+    private List<Map<String, Object>> buildSourceList(List<KnowledgeEntry> entries) {
+        List<Map<String, Object>> sources = new ArrayList<>();
+        int srcIdx = 0;
+        for (KnowledgeEntry e : entries) {
+            if (srcIdx >= 10) break;
+            Map<String, Object> src = new LinkedHashMap<>();
+            src.put("index", srcIdx + 1);
+            src.put("entry_id", e.getId());
+            src.put("title", e.getTitle());
+            src.put("library", e.getEntryLibrary() != null ? e.getEntryLibrary() : "");
+            src.put("media_type", e.getMediaType() != null ? e.getMediaType() : "text");
+            src.put("source_name", e.getSourceName() != null ? e.getSourceName() : "");
+            src.put("source_origin", e.getSourceOrigin() != null ? e.getSourceOrigin() : "");
+            src.put("content", e.getContent() != null ? e.getContent().substring(0, Math.min(e.getContent().length(), 150)) + "..." : "");
+            sources.add(src);
+            srcIdx++;
+        }
+        return sources;
     }
 
     /**

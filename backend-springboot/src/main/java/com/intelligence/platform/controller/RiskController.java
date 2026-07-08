@@ -8,6 +8,9 @@ import com.intelligence.platform.mapper.RiskAlertMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import com.intelligence.platform.common.Result;
+import com.intelligence.platform.service.ProjectContext;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +24,9 @@ public class RiskController {
     @Autowired
     private RiskAlertMapper riskAlertMapper;
 
+    @Autowired
+    private ProjectContext projectContext;
+
     @GetMapping
     public PageResult<RiskAlert> listRisks(
             @RequestParam(required = false) String severity,
@@ -29,6 +35,8 @@ public class RiskController {
             @RequestParam(defaultValue = "20") int pageSize) {
 
         LambdaQueryWrapper<RiskAlert> wrapper = new LambdaQueryWrapper<>();
+        Long projectId = projectContext.getCurrentProjectId();
+        if (projectId != null) wrapper.eq(RiskAlert::getProjectId, projectId);
         if (severity != null && !severity.isEmpty()) wrapper.eq(RiskAlert::getSeverity, severity);
         if (category != null && !category.isEmpty()) wrapper.eq(RiskAlert::getCategory, category);
         wrapper.orderByDesc(RiskAlert::getDetectedAt);
@@ -54,6 +62,18 @@ public class RiskController {
     public Map<String, Object> createRisk(@RequestBody RiskAlert alert) {
         riskAlertMapper.insert(alert);
         return Map.of("id", alert.getId(), "message", "创建成功");
+    }
+
+    @PutMapping("/{id}")
+    public Result<?> updateRiskAlert(@PathVariable Long id, @RequestBody RiskAlert riskAlert) {
+        riskAlert.setId(id);
+        riskAlertMapper.updateById(riskAlert);
+        return Result.ok("更新成功");
+    }
+
+    @GetMapping("/{id}")
+    public Result<?> getRiskAlert(@PathVariable Long id) {
+        return Result.ok(riskAlertMapper.selectById(id));
     }
 
     @DeleteMapping("/{id}")

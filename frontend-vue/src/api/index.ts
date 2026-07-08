@@ -76,6 +76,8 @@ export const getDocument = (id: number) => api.get(`/documents/${id}`)
 export const createDocument = (data: any) => api.post('/documents/', data)
 export const updateDocument = (id: number, data: any) => api.put(`/documents/${id}`, data)
 export const deleteDocument = (id: number) => api.delete(`/documents/${id}`)
+export const reExtractDocument = (id: number) =>
+  api.post(`/documents/${id}/re-extract`)
 
 // Reports
 export const getReports = (params: Record<string, any>) => api.get('/reports', { params })
@@ -186,6 +188,86 @@ export const vectorSearch = (data: { query: string; topK?: number }) => api.post
 // 使用更长超时时间（5分钟），因为涉及：embedding查询 + 向量搜索 + LLM生成
 export const askQuestion = (data: { question: string; sessionId?: string }) =>
   api.post('/qa-chat/ask', data, { timeout: 300000 })
+
+// 流式问答接口（SSE）
+export function askQuestionStream(
+  data: { question: string; sessionId?: string },
+  onMeta: (meta: any) => void,
+  onDelta: (text: string) => void,
+  onDone: (result: { answer: string; confidence: number }) => void,
+  onError?: (error: string) => void
+) {
+  const baseUrl = isTauri ? 'http://localhost:8080/api' : '/api'
+  const url = `${baseUrl}/qa-chat/ask/stream`
+
+  fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  }).then(response => {
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('No reader')
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let currentEvent = ''
+
+    function read() {
+      reader.read().then(({ done, value }) => {
+        if (done) return
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          const trimmed = line.trim()
+          
+          // 空行表示事件结束，重置事件类型
+          if (trimmed === '') {
+            currentEvent = ''
+            continue
+          }
+          
+          // 解析 event: 行
+          if (trimmed.startsWith('event:')) {
+            currentEvent = trimmed.substring(6).trim()
+            continue
+          }
+          
+          // 解析 data: 行
+          if (trimmed.startsWith('data:')) {
+            const dataStr = trimmed.substring(5).trim()
+            try {
+              const eventData = JSON.parse(dataStr)
+              
+              // 优先使用事件类型分发
+              if (currentEvent === 'meta' || eventData.sessionId !== undefined) {
+                onMeta(eventData)
+              } else if (currentEvent === 'delta' || eventData.text !== undefined) {
+                onDelta(eventData.text)
+              } else if (currentEvent === 'done' || eventData.answer !== undefined) {
+                onDone(eventData)
+              } else if (currentEvent === 'error' || eventData.message !== undefined) {
+                onError?.(eventData.message)
+              }
+            } catch (e) {
+              console.warn('Failed to parse SSE data:', dataStr, e)
+            }
+          }
+        }
+        read()
+      })
+    }
+    read()
+  }).catch(err => {
+    onError?.(err.message || 'Unknown error')
+  })
+}
+
 export const getQAChatSessions = () => api.get('/qa-chat/sessions')
 export const getQAChatSession = (sessionId: string) => api.get(`/qa-chat/session/${sessionId}`)
 export const deleteQAChatSession = (sessionId: string) => api.delete(`/qa-chat/session/${sessionId}`)

@@ -4,12 +4,24 @@ use tauri::Manager;
 use tokio::process::{Child, Command};
 
 #[derive(serde::Serialize, serde::Deserialize, Default, Clone, Debug)]
+pub struct MysqlSettings {
+    pub host: Option<String>,
+    pub port: Option<u16>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub database: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone, Debug)]
 pub struct DesktopConfig {
     pub custom_data_dir: Option<String>,
     pub close_action: Option<String>, // "minimize" or "quit"
     /// LLM 配置（可选，覆盖 application.properties 中的默认值）
     #[serde(default)]
     pub llm: LlmSettings,
+    /// MySQL 连接配置（可选，用于替代默认的 SQLite 数据源）
+    #[serde(default)]
+    pub mysql: MysqlSettings,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default, Clone, Debug)]
@@ -84,14 +96,22 @@ pub fn start_spring_boot(app: &AppHandle) -> Result<Child, Box<dyn std::error::E
 
     println!("[sidecar] Starting Spring Boot: {} {}", java_cmd, jar_path);
 
+    // 从配置中提取 MySQL 连接参数
+    let mysql_host = config.mysql.host.as_deref().unwrap_or("localhost");
+    let mysql_port = config.mysql.port.unwrap_or(3306);
+    let mysql_db = config.mysql.database.as_deref().unwrap_or("intelligence_platform");
+    let mysql_user = config.mysql.username.as_deref().unwrap_or("root");
+    let mysql_pass = config.mysql.password.as_deref().unwrap_or("");
+
     let mut cmd = Command::new(&java_cmd);
     cmd.arg("-jar")
         .arg(&jar_path)
-        // Java module flags for SQLite native access (required since Java 17+)
-        .arg("--enable-native-access=ALL-UNNAMED")
         .arg(format!("--server.port={}", get_backend_port()))
         .arg(format!("--upload.dir={}", app_data_dir.join("uploads").display()))
-        .arg(format!("--spring.datasource.url=jdbc:sqlite:{}", app_data_dir.join("intelligence_platform.db").display()))
+        .arg(format!("--spring.datasource.url=jdbc:mysql://{}:{}/{}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&characterEncoding=UTF-8",
+            mysql_host, mysql_port, mysql_db))
+        .arg(format!("--spring.datasource.username={}", mysql_user))
+        .arg(format!("--spring.datasource.password={}", mysql_pass))
         .current_dir(&app_data_dir);
 
     // 传递 LLM 配置（如果 config.json 中设置了）

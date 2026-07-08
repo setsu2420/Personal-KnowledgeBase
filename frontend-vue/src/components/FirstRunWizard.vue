@@ -37,6 +37,12 @@ const storageMode = ref('default')
 const defaultDataDirPreview = ref('')
 
 onMounted(async () => {
+  // Web 开发模式：自动跳过向导（直接标记完成）
+  if (!isTauri()) {
+    localStorage.setItem('firstRunComplete', 'true')
+    return
+  }
+
   // 检测首次运行：优先使用 .first-run 文件（Tauri环境），降级到 localStorage（开发模式）
   if (isTauri()) {
     try {

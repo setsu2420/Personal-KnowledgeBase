@@ -48,7 +48,8 @@ onUnmounted(() => {
 body {
   margin: 0;
   padding: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   background-color: #0d0f15;
 }
 

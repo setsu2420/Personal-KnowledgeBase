@@ -20,7 +20,7 @@ public class SettingController {
     @GetMapping
     public Map<String, String> getSettings() {
         List<Setting> settings = settingMapper.selectList(null);
-        return settings.stream().collect(Collectors.toMap(Setting::getKey, Setting::getValue));
+        return settings.stream().collect(Collectors.toMap(Setting::getSettingKey, Setting::getValue));
     }
 
     @PutMapping("/")
@@ -32,7 +32,7 @@ public class SettingController {
                 settingMapper.updateById(setting);
             } else {
                 setting = new Setting();
-                setting.setKey(entry.getKey());
+                setting.setSettingKey(entry.getKey());
                 setting.setValue(entry.getValue());
                 settingMapper.insert(setting);
             }

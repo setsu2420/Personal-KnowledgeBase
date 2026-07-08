@@ -64,7 +64,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, reactive } from 'vue'
-import { getDocuments, deleteDocument, uploadFile } from '../../api'
+import { getDocuments, deleteDocument, uploadFile, reExtractDocument } from '../../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadFile } from 'element-plus'
 
@@ -128,12 +128,14 @@ async function handleUpload() {
 
 async function handleReExtract(id: number) {
   try {
-    const res = await fetch(`/api/documents/${id}/re-extract`, { method: 'POST' })
-    const data = await res.json()
-    ElMessage.success(data.message || '重新抽取完成')
+    await ElMessageBox.confirm('确定要重新解析该资料？', '确认重新解析')
+    await reExtractDocument(id)
+    ElMessage.success('重新解析任务已提交')
     loadData()
   } catch (e: any) {
-    ElMessage.error('重新抽取失败: ' + (e.message || ''))
+    if (e !== 'cancel') {
+      ElMessage.error('重新解析失败: ' + (e.message || '未知错误'))
+    }
   }
 }
 

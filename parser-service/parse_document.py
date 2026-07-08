@@ -54,6 +54,39 @@ try:
 except ImportError as e:
     print(f"[MinerU] marker not available: {e}", file=sys.stderr)
 
+# PaddleOCR-VL 表格识别（本地 OCR 后备）
+# 使用子进程安全检测 PaddleOCR 是否可用（NumPy 版本冲突可能导致 C 扩展崩溃）
+_paddleocr_vl_available = False
+_paddleocr_vl_pipe = None
+
+import subprocess as _sp
+_paddleocr_safe = False
+try:
+    _check = _sp.run(
+        [sys.executable, '-c', 'import os; os.environ["PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK"]="True"; from paddleocr import PaddleOCR'],
+        capture_output=True, timeout=15
+    )
+    _paddleocr_safe = (_check.returncode == 0)
+except Exception:
+    _paddleocr_safe = False
+
+if _paddleocr_safe:
+    try:
+        import os
+        os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
+        from paddleocr import PaddleOCR
+        try:
+            _test_ocr = PaddleOCR(use_textline_orientation=True, lang='ch')
+        except (TypeError, ValueError):
+            _test_ocr = PaddleOCR(use_angle_cls=True, lang='ch')
+        _paddleocr_vl_available = True
+        _paddleocr_vl_pipe = _test_ocr
+        print("[PaddleOCR-VL] loaded successfully", file=sys.stderr)
+    except Exception as e:
+        print(f"[PaddleOCR-VL] init failed: {e}", file=sys.stderr)
+else:
+    print("[PaddleOCR-VL] NOT available (import check failed, likely NumPy version conflict)", file=sys.stderr)
+
 # HTML 解析 fallback
 try:
     from bs4 import BeautifulSoup
@@ -284,7 +317,129 @@ def health():
         'mineru': _mineru_available,
         'marker': _marker_available,
         'bs4': _bs4_available,
+        'paddleocr_vl': _paddleocr_vl_available,
     })
+
+
+def _ocr_result_to_markdown(ocr_result) -> str:
+    """将 PaddleOCR 识别结果转换为 Markdown 表格"""
+    if not ocr_result:
+        return ""
+
+    # PaddleOCR 返回格式: [[{box, text, confidence}, ...], ...]
+    # 每个子列表是一行文字的识别结果
+    lines = []
+    for line_group in ocr_result:
+        if not isinstance(line_group, list):
+            continue
+        # 按 x 坐标排序，提取同一行的文本
+        boxes = []
+        for item in line_group:
+            if isinstance(item, dict) and 'text' in item:
+                box = item.get('box', [[0, 0]])
+                y_pos = box[0][1] if box else 0
+                x_pos = box[0][0] if box else 0
+                boxes.append((x_pos, y_pos, item['text']))
+            elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                # 旧版格式: [[[x,y],...], (text, confidence)]
+                box = item[0]
+                text_conf = item[1]
+                text = text_conf[0] if isinstance(text_conf, (list, tuple)) else str(text_conf)
+                x_pos = box[0][0] if box and len(box) > 0 else 0
+                y_pos = box[0][1] if box and len(box) > 0 else 0
+                boxes.append((x_pos, y_pos, text))
+
+        # 按 y 坐标分行，x 坐标排序
+        boxes.sort(key=lambda b: (round(b[1] / 20) * 20, b[0]))
+
+        # 按行分组（y 坐标接近的归为一行）
+        rows = []
+        current_row = []
+        last_y = -1
+        for x, y, text in boxes:
+            if last_y >= 0 and abs(y - last_y) > 15:
+                if current_row:
+                    rows.append(current_row)
+                current_row = []
+            current_row.append((x, text))
+            last_y = y
+        if current_row:
+            rows.append(current_row)
+
+        # 转换为 Markdown 表格
+        for i, row in enumerate(rows):
+            row.sort(key=lambda c: c[0])
+            cells = [c[1].strip().replace('|', '\\|') for c in row]
+            lines.append('| ' + ' | '.join(cells) + ' |')
+            if i == 0:
+                lines.append('| ' + ' | '.join(['---'] * len(cells)) + ' |')
+
+    return '\n'.join(lines)
+
+
+@app.route('/api/ocr-table', methods=['POST'])
+def ocr_table():
+    """
+    使用 PaddleOCR-VL 识别表格图片为 Markdown 表格
+
+    接收：
+    - multipart: image 字段（图片文件）
+    - 或 JSON: {"image": "base64..."}
+
+    返回：
+    - markdown: Markdown 格式的表格
+    """
+    if not _paddleocr_vl_available:
+        return jsonify({
+            'error': 'PaddleOCR-VL 未安装。请运行: pip install paddleocr 或 pip install transformers && pip install paddlepaddle',
+            'install_hint': 'pip install paddleocr'
+        }), 503
+
+    image_data = None
+
+    # 尝试 multipart 上传
+    if 'image' in request.files:
+        image_data = request.files['image'].read()
+    # 尝试 JSON base64
+    elif request.is_json:
+        data = request.get_json()
+        if 'image' in data:
+            import base64
+            image_data = base64.b64decode(data['image'])
+
+    if not image_data:
+        return jsonify({'error': '请提供图片文件（multipart image 字段）或 base64 JSON'}), 400
+
+    # 保存到临时文件
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+        tmp.write(image_data)
+        tmp_path = tmp.name
+
+    try:
+        # 使用 PaddleOCR 识别
+        result = _paddleocr_vl_pipe.ocr(tmp_path, cls=True)
+
+        if not result:
+            return jsonify({'error': 'OCR 未识别到任何文本', 'markdown': ''})
+
+        markdown = _ocr_result_to_markdown(result)
+
+        return jsonify({
+            'markdown': markdown,
+            'parser': 'paddleocr-vl',
+            'line_count': len(markdown.split('\n')) if markdown else 0
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        import os
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 @app.route('/api/parse', methods=['POST'])
@@ -470,5 +625,6 @@ if __name__ == '__main__':
     print(f"  MinerU: {'available' if _mineru_available else 'NOT available'}")
     print(f"  marker: {'available' if _marker_available else 'NOT available'}")
     print(f"  bs4: {'available' if _bs4_available else 'NOT available'}")
+    print(f"  PaddleOCR-VL: {'available' if _paddleocr_vl_available else 'NOT available'}")
 
     app.run(host=args.host, port=args.port, debug=False)

@@ -13,9 +13,14 @@
         <el-card>
           <template #header>最新资料</template>
           <el-table :data="latestDocs" stripe size="small">
-            <el-table-column prop="title" label="标题" />
+            <el-table-column prop="title" label="标题" show-overflow-tooltip />
             <el-table-column prop="doc_type" label="类型" width="80" />
-            <el-table-column prop="upload_time" label="上传时间" width="160" />
+            <el-table-column prop="uploaded_at" label="上传时间" width="100">
+              <template #default="{ row }">{{ row.uploaded_at?.slice(0, 10) }}</template>
+            </el-table-column>
+            <template #empty>
+              <el-empty description="暂无最新资料" :image-size="60" />
+            </template>
           </el-table>
         </el-card>
       </el-col>

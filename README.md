@@ -333,6 +333,73 @@ Visit `http://localhost:5173`:
 - Portal: `http://localhost:5173/portal`
 - Admin: `http://localhost:5173/admin`
 
+## Web Mode (Browser-based)
+
+In addition to the Tauri desktop app, the platform supports a **Web Mode** that runs entirely in the browser — no desktop installation required. This is ideal for server deployments, remote access, or users who prefer a browser-based workflow.
+
+### Quick Start
+
+The easiest way to launch Web Mode is with the provided startup script:
+
+```bash
+./start-web.sh
+```
+
+This script automatically:
+1. Checks and starts MySQL if needed
+2. Creates the database if it doesn't exist
+3. Starts the Spring Boot backend (port 8080)
+4. Waits for the backend to be ready
+5. Starts the Vue frontend (port 5173)
+
+### Manual Start
+
+You can also start the frontend and backend separately:
+
+```bash
+# Terminal 1: Start backend
+cd backend-springboot && ./mvnw spring-boot:run
+
+# Terminal 2: Start frontend
+cd frontend-vue && npm run dev
+```
+
+### Access URLs
+
+Once running, open your browser to:
+
+| Workspace | URL |
+|-----------|-----|
+| Frontend (Portal) | http://localhost:5173/portal |
+| Backend (Admin) | http://localhost:5173/admin |
+| Backend API | http://localhost:8080/api |
+| Health Check | http://localhost:8080/api/health |
+
+### Differences from Desktop Mode
+
+| Feature | Desktop Mode (Tauri) | Web Mode (Browser) |
+|---------|---------------------|-------------------|
+| Installation | Download and install `.dmg` / `.exe` | No installation — just start the services |
+| Access | Native window with system tray | Any modern browser |
+| System Tray | ✅ Show/hide, restart, quit | ❌ Not available |
+| Global Shortcuts | ✅ `Cmd/Ctrl+Q`, `Cmd/Ctrl+W`, etc. | ❌ Browser shortcuts only |
+| Auto-Update | ✅ Built-in Tauri updater | ❌ Manual update via `git pull` |
+| Splash Screen | ✅ Native loading animation | ❌ Standard web loading |
+| Backend Lifecycle | Auto-managed by Tauri sidecar | Manual start/stop required |
+| Multi-Device Access | ❌ Single machine only | ✅ Any device on the network |
+| Core Features | Full feature set | Full feature set (identical) |
+
+All analysis features — Graph-RAG Q&A, Deep Research, Knowledge Graph, Contradiction Detection, etc. — work identically in both modes.
+
+### Stopping Services
+
+If started via `./start-web.sh`, press `Ctrl+C` to stop both services. If started manually:
+
+```bash
+kill <BACKEND_PID>   # stop backend
+kill <FRONTEND_PID>  # stop frontend
+```
+
 ## Configuration
 
 ### LLM Configuration

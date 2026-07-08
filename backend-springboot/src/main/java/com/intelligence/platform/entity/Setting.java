@@ -8,7 +8,7 @@ import lombok.Data;
 @TableName("settings")
 public class Setting {
     @TableId
-    private String key;
+    private String settingKey;
     private String value;
     private String description;
 }

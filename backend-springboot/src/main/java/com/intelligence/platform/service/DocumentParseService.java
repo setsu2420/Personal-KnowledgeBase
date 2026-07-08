@@ -14,6 +14,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -97,6 +99,10 @@ public class DocumentParseService {
                 [{"title": "分级诊疗", "type": "concept", "description": "由基层到大医院的诊疗分流机制", "tags": ["政策", "基层医疗"], "related": ["社区医院", "医保控费"], "content": "分级诊疗的实施包含以下核心要点：\\n1. **首诊在基层**...\\n2. **双向转诊**..."}]
                 """;
 
+        // 智能标签：查询已有词条作为LLM参考上下文，优先复用已有标签体系
+        String existingContext = buildExistingEntriesContext(doc.getProjectId(), library);
+        String effectivePrompt = systemPrompt + existingContext;
+
         for (int i = 0; i < totalChunks; i++) {
             String chunk = chunks.get(i);
             String userPrompt = totalChunks > 1
@@ -105,12 +111,13 @@ public class DocumentParseService {
                     : "请从以下文本中抽取知识词条：\n\n" + chunk;
 
             try {
-                String response = llmService.chatWithActive(systemPrompt, userPrompt);
+                String response = llmService.chatWithExtract(effectivePrompt, userPrompt);
                 List<KnowledgeEntry> chunkEntries = parseEntriesFromResponse(response, doc, library);
                 allEntries.addAll(chunkEntries);
                 log.info("Chunk {}/{}: extracted {} entries", i + 1, totalChunks, chunkEntries.size());
             } catch (Exception e) {
-                log.warn("Chunk {}/{} extraction failed: {}", i + 1, totalChunks, e.getMessage());
+                log.warn("Chunk {}/{} extraction failed: {} - {}", i + 1, totalChunks, e.getClass().getName(), e.getMessage());
+                log.warn("Extraction stack trace:", e);
             }
         }
 
@@ -230,7 +237,7 @@ public class DocumentParseService {
             KnowledgeEntry entry = new KnowledgeEntry();
             entry.setTitle(doc.getTitle());
             entry.setEntryType("table");
-            entry.setLibrary(library);
+            entry.setEntryLibrary(library);
             entry.setDocumentId(doc.getId());
             entry.setSourceName(doc.getTitle());
             entry.setContent("表格数据（CSV格式）");
@@ -258,7 +265,19 @@ public class DocumentParseService {
             throw new RuntimeException("无法读取文档内容: " + doc.getTitle());
         }
 
-        // 2. 调用LLM抽取词条（支持长文档分块处理）
+        // 2. 图表库智能标签：从文本中提取标签并应用到关联的图表词条
+        if ("chart".equals(library)) {
+            String smartTags = extractSmartTags(text, doc.getProjectId());
+            if (smartTags != null && !smartTags.isEmpty()) {
+                // 将智能标签存储到文档的keywords字段
+                doc.setKeywords(smartTags);
+                log.info("Chart document '{}': extracted smart tags: {}", doc.getTitle(), smartTags);
+                // 将标签应用到该文档关联的图表词条
+                updateChartTagsForDocument(doc.getId(), smartTags, doc.getProjectId());
+            }
+        }
+
+        // 3. 调用LLM抽取词条（支持长文档分块处理）
         // 图表库不应产生文本词条，只处理图片/表格
         if (!"chart".equals(library)) {
             List<KnowledgeEntry> textEntries = extractEntriesFromText(text, doc, library);
@@ -270,13 +289,6 @@ public class DocumentParseService {
                 // 自动生成嵌入向量并加入索引
                 vectorSearchService.indexEntry(entry);
             }
-        }
-
-        // 5. 不再提取嵌入图片或表格作为词条，仅保留原始文档文本的 LLM 概念/实体抽取
-        try {
-            // No-op
-        } catch (Exception e) {
-            // Skip
         }
 
         // 更新文档状态
@@ -717,6 +729,125 @@ public class DocumentParseService {
     }
 
     /**
+     * 查询项目已有词条，构建LLM参考上下文（智能标签功能）
+     * 将已有词条的标题和关键词作为prompt的一部分，让LLM在提取新词条时优先复用已有标签体系
+     * @param projectId 项目ID（数据隔离）
+     * @param library 目标资料库（可为null，表示查询所有库）
+     * @return 拼接好的上下文文本，若无已有词条则返回空字符串
+     */
+    private String buildExistingEntriesContext(Long projectId, String library) {
+        LambdaQueryWrapper<KnowledgeEntry> wrapper = new LambdaQueryWrapper<>();
+        if (projectId != null) {
+            wrapper.eq(KnowledgeEntry::getProjectId, projectId);
+        }
+        // 排除图片和表格类条目，只参考概念性词条
+        wrapper.ne(KnowledgeEntry::getEntryType, "image")
+               .ne(KnowledgeEntry::getEntryType, "table");
+        // 限制数量避免prompt过长
+        wrapper.last("LIMIT 50");
+
+        List<KnowledgeEntry> existingEntries = knowledgeEntryMapper.selectList(wrapper);
+        if (existingEntries.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n\n【已有词条参考（请优先复用以下词条的关键词和标签，保持标签体系一致性）】：\n");
+        for (KnowledgeEntry entry : existingEntries) {
+            sb.append("- ").append(entry.getTitle());
+            if (entry.getKeywords() != null && !entry.getKeywords().isEmpty()) {
+                sb.append(" [关键词: ").append(entry.getKeywords()).append("]");
+            }
+            if (entry.getEntryLibrary() != null) {
+                sb.append(" (库: ").append(entry.getEntryLibrary()).append(")");
+            }
+            sb.append("\n");
+        }
+        sb.append("\n请在提取新词条时，优先使用上述已有词条的关键词作为标签(tags)，避免创建重复或含义相近的新标签。\n");
+
+        log.info("Smart tags: loaded {} existing entries as context for project {}", existingEntries.size(), projectId);
+        return sb.toString();
+    }
+
+    /**
+     * 从文档文本中提取智能标签（用于图表库）
+     * 参考已有词条的关键词，生成与已有体系一致的标签列表
+     * @param text 文档文本内容
+     * @param projectId 项目ID
+     * @return 逗号分隔的标签字符串，提取失败返回null
+     */
+    private String extractSmartTags(String text, Long projectId) {
+        String existingContext = buildExistingEntriesContext(projectId, null);
+
+        String systemPrompt = """
+                你是一个标签提取专家。请从以下文本中提取关键标签。
+
+                【要求】：
+                1. 提取5-10个高价值的标签/关键词
+                2. 优先使用已有词条中出现的关键词，保持标签体系一致性
+                3. 标签应简洁，2-6个字
+                4. 以逗号分隔返回
+
+                【返回格式】：
+                只返回逗号分隔的标签列表，不要其他文字。
+                示例：社区医疗,慢病管理,分级诊疗,基层医保
+                """ + existingContext;
+
+        try {
+            // 截断文本避免prompt过长
+            String truncatedText = text.length() > 3000 ? text.substring(0, 3000) + "..." : text;
+            String response = llmService.chatWithActive(systemPrompt,
+                    "请从以下文本中提取标签：\n\n" + truncatedText);
+            // 清理响应中可能的markdown标记
+            String tags = response.trim();
+            if (tags.startsWith("```")) {
+                tags = tags.replaceAll("^```\\w*\\n?", "").replaceAll("\\n?```$", "").trim();
+            }
+            return tags;
+        } catch (Exception e) {
+            log.warn("Smart tag extraction failed for project {}: {}", projectId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 将智能标签应用到指定文档关联的图表词条
+     * @param docId 文档ID
+     * @param smartTags 逗号分隔的智能标签
+     * @param projectId 项目ID
+     */
+    private void updateChartTagsForDocument(Long docId, String smartTags, Long projectId) {
+        try {
+            LambdaQueryWrapper<KnowledgeEntry> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(KnowledgeEntry::getDocumentId, docId)
+                   .eq(KnowledgeEntry::getProjectId, projectId)
+                   .eq(KnowledgeEntry::getEntryLibrary, "chart");
+            List<KnowledgeEntry> chartEntries = knowledgeEntryMapper.selectList(wrapper);
+
+            for (KnowledgeEntry entry : chartEntries) {
+                String existing = entry.getKeywords() != null ? entry.getKeywords() : "";
+                // 合并标签，避免重复
+                StringBuilder merged = new StringBuilder(existing);
+                for (String tag : smartTags.split(",")) {
+                    String t = tag.trim();
+                    if (!t.isEmpty() && !existing.contains(t)) {
+                        if (merged.length() > 0) merged.append(",");
+                        merged.append(t);
+                    }
+                }
+                if (!merged.toString().equals(existing)) {
+                    entry.setKeywords(merged.toString());
+                    knowledgeEntryMapper.updateById(entry);
+                    vectorSearchService.indexEntry(entry);
+                    log.info("Updated chart entry '{}' tags: {}", entry.getTitle(), merged);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to update chart tags for document {}: {}", docId, e.getMessage());
+        }
+    }
+
+    /**
      * 解析LLM返回的词条JSON
      */
     private List<KnowledgeEntry> parseEntriesFromResponse(String response, Document doc, String library) {
@@ -749,7 +880,7 @@ public class DocumentParseService {
                     }
                     entry.setEntryType(type.toLowerCase());
                     
-                    entry.setLibrary(library);
+                    entry.setEntryLibrary(library);
                     entry.setDocumentId(doc.getId());
                     entry.setSourceName(doc.getTitle());
                     entry.setContent(node.has("content") ? node.get("content").asText() : "");
@@ -795,7 +926,7 @@ public class DocumentParseService {
             KnowledgeEntry fallback = new KnowledgeEntry();
             fallback.setTitle(doc.getTitle());
             fallback.setEntryType("concept");
-            fallback.setLibrary(library);
+            fallback.setEntryLibrary(library);
             fallback.setDocumentId(doc.getId());
             fallback.setSourceName(doc.getTitle());
             fallback.setContent("LLM抽取失败，原始响应: " + response.substring(0, Math.min(200, response.length())));

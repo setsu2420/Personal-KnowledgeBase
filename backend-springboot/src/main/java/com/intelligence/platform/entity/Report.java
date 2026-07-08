@@ -19,7 +19,7 @@ public class Report {
     private String status;
     private String uploadTime;
     private String summary;
-    @TableField("abstract")
+    @TableField("`abstract`")
     private String abstract_;
     private String content;
     private String author;

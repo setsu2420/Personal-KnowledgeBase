@@ -19,10 +19,20 @@
       </el-col>
       <el-col :span="8">
         <el-card>
-          <template #header><span>历史会话</span></template>
+          <template #header>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span>历史会话</span>
+              <el-button size="small" text type="primary" @click="newSession()">+ 新对话</el-button>
+            </div>
+          </template>
           <div v-for="s in sessions" :key="s.session_id" class="session-item" @click="loadSession(s.session_id)">
             <span>{{ s.title }}</span>
-            <el-tag size="small">{{ s.msg_count }}条</el-tag>
+            <div style="display: flex; align-items: center;">
+              <el-tag size="small">{{ s.msg_count }}条</el-tag>
+              <el-button size="small" text type="danger" @click.stop="deleteSession(s.session_id)" style="margin-left: 8px;">
+                <el-icon :size="14"><Delete /></el-icon>
+              </el-button>
+            </div>
           </div>
           <el-empty v-if="sessions.length === 0" description="暂无历史会话" />
         </el-card>
@@ -33,7 +43,9 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { createQA, getQASessions, getQASession } from '../../api'
+import { askQuestion as askAPI, getQAChatSessions, getQAChatSession, deleteQAChatSession } from '../../api'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Delete } from '@element-plus/icons-vue'
 
 interface Message { role: 'user' | 'assistant'; content: string; confidence?: number }
 
@@ -50,40 +62,57 @@ async function askQuestion() {
   messages.value.push({ role: 'user', content: q })
   question.value = ''
   try {
-    const res = await createQA({
-      question: q,
-      answer: '基于当前知识库的分析结果：该问题需要进一步的数据支持。系统已记录您的问题，将在后续更新中提供详细分析。',
-      confidence: 0.75,
-      sources: '[]',
-      user_name: '用户',
-      session_id: sessionId.value,
-      category: '',
-    })
-    messages.value.push({ role: 'assistant', content: res.data.message || '已记录您的问题。', confidence: 0.75 })
+    const res = await askAPI({ question: q, sessionId: sessionId.value })
+    messages.value.push({ role: 'assistant', content: res.data.answer, confidence: res.data.confidence })
     loadSessions()
-  } catch (e) {
-    messages.value.push({ role: 'assistant', content: '抱歉，系统暂时无法处理您的请求。' })
+  } catch (e: any) {
+    messages.value.push({ role: 'assistant', content: '抱歉，系统暂时无法处理您的请求: ' + (e.message || '未知错误') })
   }
   asking.value = false
 }
 
+function newSession() {
+  sessionId.value = 'session_' + Date.now()
+  messages.value = []
+}
+
 async function loadSessions() {
   try {
-    const res = await getQASessions()
-    sessions.value = res.data
+    const res = await getQAChatSessions()
+    sessions.value = res.data || []
   } catch (e) { console.error(e) }
 }
 
 async function loadSession(sid: string) {
+  sessionId.value = sid
   try {
-    const res = await getQASession(sid)
+    const res = await getQAChatSession(sid)
     messages.value = []
-    sessionId.value = sid
-    for (const item of res.data) {
+    for (const item of (res.data || [])) {
       messages.value.push({ role: 'user', content: item.question })
       messages.value.push({ role: 'assistant', content: item.answer, confidence: item.confidence })
     }
   } catch (e) { console.error(e) }
+}
+
+async function deleteSession(sid: string) {
+  try {
+    await ElMessageBox.confirm('确定删除该会话及其所有记录？', '确认删除', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    await deleteQAChatSession(sid)
+    ElMessage.success('会话已删除')
+    loadSessions()
+    if (sessionId.value === sid) {
+      newSession()
+    }
+  } catch (e: any) {
+    if (e !== 'cancel') {
+      ElMessage.error('删除失败: ' + (e.message || '未知错误'))
+    }
+  }
 }
 
 onMounted(loadSessions)

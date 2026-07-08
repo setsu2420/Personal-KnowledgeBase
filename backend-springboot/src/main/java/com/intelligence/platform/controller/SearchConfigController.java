@@ -32,9 +32,9 @@ public class SearchConfigController {
     public Map<String, String> getSearchConfig() {
         List<Setting> all = settingMapper.selectList(null);
         return all.stream()
-                .filter(s -> s.getKey() != null && s.getKey().startsWith(PREFIX))
+                .filter(s -> s.getSettingKey() != null && s.getSettingKey().startsWith(PREFIX))
                 .collect(Collectors.toMap(
-                        s -> s.getKey().substring(PREFIX.length()),
+                        s -> s.getSettingKey().substring(PREFIX.length()),
                         Setting::getValue,
                         (a, b) -> b
                 ));
@@ -53,7 +53,7 @@ public class SearchConfigController {
                 settingMapper.updateById(existing);
             } else {
                 Setting s = new Setting();
-                s.setKey(key);
+                s.setSettingKey(key);
                 s.setValue(entry.getValue());
                 settingMapper.insert(s);
             }
@@ -85,7 +85,7 @@ public class SearchConfigController {
             settingMapper.updateById(existing);
         } else {
             Setting s = new Setting();
-            s.setKey(key);
+            s.setSettingKey(key);
             s.setValue(String.valueOf(enabled));
             s.setDescription("网络搜索开关（true=启用，false=禁用）");
             settingMapper.insert(s);

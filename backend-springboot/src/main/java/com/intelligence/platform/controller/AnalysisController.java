@@ -8,6 +8,8 @@ import com.intelligence.platform.mapper.AnalysisReportMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import com.intelligence.platform.service.ProjectContext;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +23,9 @@ public class AnalysisController {
     @Autowired
     private AnalysisReportMapper analysisReportMapper;
 
+    @Autowired
+    private ProjectContext projectContext;
+
     @GetMapping
     public PageResult<AnalysisReport> listAnalysis(
             @RequestParam(required = false) String analysisType,
@@ -30,6 +35,8 @@ public class AnalysisController {
             @RequestParam(defaultValue = "20") int pageSize) {
 
         LambdaQueryWrapper<AnalysisReport> wrapper = new LambdaQueryWrapper<>();
+        Long projectId = projectContext.getCurrentProjectId();
+        if (projectId != null) wrapper.eq(AnalysisReport::getProjectId, projectId);
         if (analysisType != null && !analysisType.isEmpty()) wrapper.eq(AnalysisReport::getAnalysisType, analysisType);
         if (categoryL1 != null && !categoryL1.isEmpty()) wrapper.eq(AnalysisReport::getCategoryL1, categoryL1);
         if (status != null && !status.isEmpty()) wrapper.eq(AnalysisReport::getStatus, status);

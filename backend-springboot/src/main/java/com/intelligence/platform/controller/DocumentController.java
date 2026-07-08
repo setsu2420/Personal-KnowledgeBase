@@ -54,9 +54,7 @@ public class DocumentController {
 
         Page<Document> pageObj = new Page<>(page, pageSize);
         Page<Document> result = documentMapper.selectPage(pageObj, wrapper);
-        // SQLite 不支持 COUNT(*) 在 selectPage 中，使用 items.size() 作为 fallback
-        long total = result.getTotal() > 0 ? result.getTotal() : result.getRecords().size();
-        return new PageResult<>(total, page, pageSize, result.getRecords());
+        return new PageResult<>(result.getTotal(), page, pageSize, result.getRecords());
     }
 
     @GetMapping("/{id}")

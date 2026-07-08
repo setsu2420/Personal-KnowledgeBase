@@ -6,6 +6,8 @@ import com.intelligence.platform.mapper.ProjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import com.intelligence.platform.common.Result;
+
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -58,6 +60,13 @@ public class ProjectController {
         }
         projectMapper.insert(project);
         return Map.of("id", project.getId(), "message", "创建成功");
+    }
+
+    @PutMapping("/{id}")
+    public Result<?> updateProject(@PathVariable Long id, @RequestBody Project project) {
+        project.setId(id);
+        projectMapper.updateById(project);
+        return Result.ok("更新成功");
     }
 
     @DeleteMapping("/{id}")

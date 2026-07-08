@@ -87,6 +87,9 @@
                   </div>
                 </template>
               </el-table-column>
+              <template #empty>
+                <el-empty description="暂无 LLM 配置，请点击【新增配置】添加" :image-size="60" />
+              </template>
             </el-table>
           </div>
 

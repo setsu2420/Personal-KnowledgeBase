@@ -29,6 +29,9 @@
             <el-button type="danger" size="small" link @click.stop="handleDelete(row.id)">删除</el-button>
           </template>
         </el-table-column>
+        <template #empty>
+          <el-empty description="暂无项目，请点击【新建项目】创建" :image-size="80" />
+        </template>
       </el-table>
     </el-card>
 

@@ -19,7 +19,7 @@ public class KnowledgeEntry {
     /** 词条类型：concept/entity/thesis/methodology/finding/comparison/synthesis/source/query */
     private String entryType;
     /** 所属资料库：report/dynamic/translation/chart */
-    private String library;
+    private String entryLibrary;
     /** 来源文档ID */
     private Long documentId;
     /** 来源文档名称 */

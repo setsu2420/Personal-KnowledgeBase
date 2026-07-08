@@ -131,7 +131,7 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue'
 import { Delete } from '@element-plus/icons-vue'
-import { askQuestion as askAPI, getQAChatSessions, getQAChatSession, deleteQAChatSession, getMediaUrl } from '../../api'
+import { askQuestionStream, getQAChatSessions, getQAChatSession, deleteQAChatSession, getMediaUrl } from '../../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
 
@@ -216,7 +216,7 @@ function refTypeLabel(mediaType: string): string {
   return { image: '图表', table: '表格', text: '文本' }[mediaType] || '文本'
 }
 
-async function askQuestion() {
+function askQuestion() {
   const q = question.value.trim()
   if (!q) return
 
@@ -224,29 +224,52 @@ async function askQuestion() {
   messages.value.push({ role: 'user', content: q })
   question.value = ''
 
-  try {
-    const res = await askAPI({ question: q, sessionId: currentSessionId.value })
-    messages.value.push({
-      role: 'assistant',
-      content: res.data.answer,
-      confidence: res.data.confidence,
-      sources: res.data.sources || [],
-      tables: res.data.tables || [],
-      images: res.data.images || [],
-    })
-    loadSessions()
-  } catch (e: any) {
-    messages.value.push({
-      role: 'assistant',
-      content: '抱歉，系统暂时无法处理您的请求: ' + (e.message || '未知错误'),
-    })
+  // 添加一个空的助手消息用于流式填充
+  const assistantMsg: Message = {
+    role: 'assistant',
+    content: '',
+    confidence: 0,
+    sources: [],
+    tables: [],
+    images: [],
   }
+  messages.value.push(assistantMsg)
+  const msgIndex = messages.value.length - 1
 
-  asking.value = false
-  await nextTick()
-  if (chatRef.value) {
-    chatRef.value.scrollTop = chatRef.value.scrollHeight
-  }
+  askQuestionStream(
+    { question: q, sessionId: currentSessionId.value },
+    // onMeta: 收到元数据（来源、表格、图片）
+    (meta) => {
+      messages.value[msgIndex].sources = meta.sources || []
+      messages.value[msgIndex].tables = meta.tables || []
+      messages.value[msgIndex].images = meta.images || []
+      if (meta.sessionId) {
+        currentSessionId.value = meta.sessionId
+      }
+    },
+    // onDelta: 收到文本片段
+    (text) => {
+      messages.value[msgIndex].content += text
+      // 自动滚动到底部
+      nextTick().then(() => {
+        if (chatRef.value) {
+          chatRef.value.scrollTop = chatRef.value.scrollHeight
+        }
+      })
+    },
+    // onDone: 流式完成
+    (result) => {
+      messages.value[msgIndex].content = result.answer
+      messages.value[msgIndex].confidence = result.confidence
+      asking.value = false
+      loadSessions()
+    },
+    // onError: 错误处理
+    (error) => {
+      messages.value[msgIndex].content = '抱歉，系统暂时无法处理您的请求: ' + error
+      asking.value = false
+    }
+  )
 }
 
 function newSession() {

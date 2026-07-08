@@ -8,6 +8,9 @@ import com.intelligence.platform.mapper.DecisionMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import com.intelligence.platform.common.Result;
+import com.intelligence.platform.service.ProjectContext;
+
 import java.util.Map;
 
 @RestController
@@ -17,6 +20,9 @@ public class DecisionController {
 
     @Autowired
     private DecisionMapper decisionMapper;
+
+    @Autowired
+    private ProjectContext projectContext;
 
     @GetMapping
     public PageResult<Decision> listDecisions(
@@ -39,6 +45,18 @@ public class DecisionController {
     public Map<String, Object> createDecision(@RequestBody Decision decision) {
         decisionMapper.insert(decision);
         return Map.of("id", decision.getId(), "message", "创建成功");
+    }
+
+    @PutMapping("/{id}")
+    public Result<?> updateDecision(@PathVariable Long id, @RequestBody Decision decision) {
+        decision.setId(id);
+        decisionMapper.updateById(decision);
+        return Result.ok("更新成功");
+    }
+
+    @GetMapping("/{id}")
+    public Result<?> getDecision(@PathVariable Long id) {
+        return Result.ok(decisionMapper.selectById(id));
     }
 
     @DeleteMapping("/{id}")

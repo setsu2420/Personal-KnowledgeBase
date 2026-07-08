@@ -20,6 +20,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="180" />
+        <template #empty>
+          <el-empty description="暂无分析报告" :image-size="80" />
+        </template>
       </el-table>
       <el-pagination
         v-if="total > 0"

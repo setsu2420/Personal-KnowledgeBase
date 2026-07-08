@@ -4,12 +4,12 @@ import com.intelligence.platform.service.VectorSearchService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import javax.sql.DataSource;
 import java.lang.management.ManagementFactory;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -20,17 +20,14 @@ import java.util.Map;
 @CrossOrigin(origins = "*")
 public class HealthController {
 
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
-
     @Autowired(required = false)
     private VectorSearchService vectorSearchService;
 
     @Value("${app.version:1.0.0}")
     private String appVersion;
 
-    @Value("${spring.datasource.url:}")
-    private String datasourceUrl;
+    @Autowired
+    private DataSource dataSource;
 
     @GetMapping("/health")
     public ResponseEntity<Map<String, Object>> health() {
@@ -59,28 +56,16 @@ public class HealthController {
 
     private Map<String, Object> buildDatabaseInfo() {
         Map<String, Object> db = new LinkedHashMap<>();
-        String dbFile = extractDbFile();
-        try {
-            jdbcTemplate.execute("SELECT 1");
+        db.put("type", "MySQL");
+        try (var conn = dataSource.getConnection()) {
+            db.put("version", conn.getMetaData().getDatabaseProductVersion());
+            db.put("url", conn.getMetaData().getURL());
             db.put("status", "UP");
-            db.put("type", "SQLite");
-            db.put("file", dbFile);
         } catch (Exception e) {
             db.put("status", "DOWN");
-            db.put("type", "SQLite");
-            db.put("file", dbFile);
             db.put("error", e.getMessage());
         }
         return db;
-    }
-
-    private String extractDbFile() {
-        if (datasourceUrl != null && datasourceUrl.contains("sqlite:")) {
-            String path = datasourceUrl.substring(datasourceUrl.indexOf("sqlite:") + 7);
-            int sep = path.lastIndexOf('/');
-            return sep >= 0 ? path.substring(sep + 1) : path;
-        }
-        return "app.db";
     }
 
     private Map<String, Object> buildJvmInfo() {

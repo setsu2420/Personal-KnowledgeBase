@@ -1,5 +1,67 @@
 # 更新日志
 
+## 2026-07-07 (v9)
+
+### 新增 Web 模式支持 + 前端兼容性优化
+
+**1. 新增 Web 模式**
+- 支持在浏览器中直接访问平台，无需安装 Tauri 桌面应用
+- 新增 `start-web.sh` 一键启动脚本，自动检查 MySQL 服务、创建数据库、启动前后端服务
+- 前端自动检测运行环境（Tauri / Web），在 Web 模式下优雅降级 Tauri 专属 API
+- Web 模式下所有核心功能（智能问答、深度研究、知识图谱等）完整可用
+
+**2. 优化前端 Tauri API 兼容性**
+- 前端 Tauri API 调用增加环境检测，非 Tauri 环境下不再报错
+- 系统托盘、全局快捷键、自动更新等桌面专属功能在 Web 模式下自动隐藏
+- 统一错误处理，避免 Web 模式下出现 Tauri 相关的控制台警告
+
+**3. 新增 start-web.sh 启动脚本**
+- 自动检测并启动 MySQL 服务
+- 自动检查并创建 `intelligence_platform` 数据库
+- 后台启动 Spring Boot 后端和 Vue 前端
+- 等待后端健康检查通过后再启动前端
+- 支持 `Ctrl+C` 一键停止所有服务
+
+**4. 优化图表库智能标签功能**
+- 图表上传时支持自动分类标签（图片/表格）
+- 图表库列表支持按标签筛选和搜索
+
+**5. 更新 .gitignore**
+- 添加 `tests/` 目录规则，测试文件不纳入版本控制
+
+---
+
+## 2026-07-07 (v8)
+
+### SQLite → MySQL 数据库迁移 + 全栈优化
+
+**1. 数据库迁移**
+- 从 SQLite 迁移到 MySQL 8.x，所有 13 张表使用 MySQL 语法重建
+- `pom.xml` 移除 `sqlite-jdbc`，添加 `mysql-connector-j`
+- `application.properties` 改为 MySQL JDBC URL，支持环境变量配置
+- 修复 MySQL 保留字冲突：`library` → `entry_library`，`key` → `setting_key`，`abstract` 加反引号
+- `spring.sql.init.mode=never` 避免重复初始化
+
+**2. Tauri Sidecar 更新**
+- `sidecar.rs` 添加 `MysqlSettings` 结构体，支持从 `config.json` 读取 MySQL 连接配置
+- JVM 启动参数改为 MySQL JDBC URL
+移除 SQLite 专用 `--enable-native-access` 参数
+
+**3. 后端 API 完善**
+- `HealthController` 改为报告 MySQL 连接状态
+- 移除 `DocumentController`/`KnowledgeEntryController` 中的 SQLite 分页 fallback
+- 补全缺失端点：Decision PUT/GET、Report PUT、Risk PUT/GET、Project PUT
+- 修复项目隔离：ReportController、RiskController、AnalysisController 添加 projectId 过滤
+
+**4. 前端优化**
+- QA 问答页面从假回答改为真实 LLM API 调用
+- 6 处空状态页面添加引导文案
+- `reExtractDocument` API 函数补全
+
+**5. 数据安全**
+- `.gitignore` 添加 `Test-Project/` 规则
+- 所有运行时数据（uploads/、data/、*.db）不入 Git
+
 ## 2026-07-07 (v7)
 
 ### 桌面应用 LLM 配置迁移 + DMG 重新构建

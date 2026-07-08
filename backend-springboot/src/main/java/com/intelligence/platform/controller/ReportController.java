@@ -8,6 +8,9 @@ import com.intelligence.platform.mapper.ReportMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import com.intelligence.platform.common.Result;
+import com.intelligence.platform.service.ProjectContext;
+
 import java.util.Map;
 
 @RestController
@@ -17,6 +20,9 @@ public class ReportController {
 
     @Autowired
     private ReportMapper reportMapper;
+
+    @Autowired
+    private ProjectContext projectContext;
 
     @GetMapping
     public PageResult<Report> listReports(
@@ -28,6 +34,8 @@ public class ReportController {
             @RequestParam(defaultValue = "20") int pageSize) {
 
         LambdaQueryWrapper<Report> wrapper = new LambdaQueryWrapper<>();
+        Long projectId = projectContext.getCurrentProjectId();
+        if (projectId != null) wrapper.eq(Report::getProjectId, projectId);
         if (reportType != null && !reportType.isEmpty()) wrapper.eq(Report::getReportType, reportType);
         if (categoryL1 != null && !categoryL1.isEmpty()) wrapper.eq(Report::getCategoryL1, categoryL1);
         if (status != null && !status.isEmpty()) wrapper.eq(Report::getStatus, status);
@@ -50,6 +58,13 @@ public class ReportController {
     public Map<String, Object> createReport(@RequestBody Report report) {
         reportMapper.insert(report);
         return Map.of("id", report.getId(), "message", "创建成功");
+    }
+
+    @PutMapping("/{id}")
+    public Result<?> updateReport(@PathVariable Long id, @RequestBody Report report) {
+        report.setId(id);
+        reportMapper.updateById(report);
+        return Result.ok("更新成功");
     }
 
     @DeleteMapping("/{id}")

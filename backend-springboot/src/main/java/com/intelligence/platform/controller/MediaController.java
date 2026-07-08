@@ -168,7 +168,7 @@ public class MediaController {
             KnowledgeEntry mergedEntry = new KnowledgeEntry();
             mergedEntry.setTitle(title);
             mergedEntry.setEntryType("table");
-            mergedEntry.setLibrary("chart");
+            mergedEntry.setEntryLibrary("chart");
             mergedEntry.setSourceName("合并自 " + entryIds.size() + " 张表格图片");
             mergedEntry.setContent("合并表格数据（Markdown格式）");
             mergedEntry.setKeywords("表格,合并,OCR");
@@ -330,8 +330,8 @@ public class MediaController {
                 return ResponseEntity.notFound().build();
             }
 
-            // 获取 PDF 文件绝对路径
-            Path pdfPath = Paths.get(getEffectiveUploadDir(), doc.getFilePath().replace("../uploads/", "")).toAbsolutePath().normalize();
+            // filePath 存储的是绝对路径，直接使用
+            Path pdfPath = Paths.get(doc.getFilePath()).toAbsolutePath().normalize();
             if (!Files.exists(pdfPath) || !pdfPath.toString().toLowerCase().endsWith(".pdf")) {
                 log.warn("getPdfCover: PDF文件不存在或格式不正确: {}", pdfPath);
                 return ResponseEntity.notFound().build();
@@ -385,8 +385,9 @@ public class MediaController {
                 return ResponseEntity.notFound().build();
             }
 
-            // 解析文件绝对路径: filePath 格式为 ../uploads/raw/sources/xxx.png
-            Path filePath = Paths.get(getEffectiveUploadDir(), doc.getFilePath().replace("../uploads/", "")).toAbsolutePath().normalize();
+            // filePath 存储的是绝对路径，如 /Users/.../uploads/raw/sources/图片/xxx.png
+            // 直接使用，不需要拼接 uploadDir
+            Path filePath = Paths.get(doc.getFilePath()).toAbsolutePath().normalize();
             if (!Files.exists(filePath)) {
                 log.warn("getDocFile: 文件不存在: {} (docId={})", filePath, docId);
                 return ResponseEntity.notFound().build();

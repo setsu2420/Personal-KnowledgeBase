@@ -13,9 +13,14 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -46,6 +51,13 @@ public class ImageService {
     @Value("${upload.dir:./uploads}")
     private String uploadDir;
 
+    @Value("${parser.service.url:http://localhost:8100}")
+    private String parserServiceUrl;
+
+    private final HttpClient parserHttpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
+
     /**
      * 获取实际生效的上传目录（优先从数据库读取，回退到配置文件）
      */
@@ -65,8 +77,13 @@ public class ImageService {
     private static final int MAX_IMAGES_PER_DOC = 500;
 
     /**
-     * 获取 OCR 配置（优先使用独立 OCR 配置，否则复用 chat 配置）
-     * 配置来源：settings 表中的 ocrConfig（JSON）或 llm_configs 表中 purpose=ocr
+     * 获取 OCR/VLM 配置（优先使用独立配置，确保返回支持 vision 的模型）
+     * 配置来源优先级：
+     * 1. settings 表中的 ocrConfig（JSON）
+     * 2. llm_configs 表中 purpose=ocr
+     * 3. llm_configs 表中 purpose=vlm
+     * 4. chat 配置（仅当支持 vision 时）
+     * 5. 返回 null（触发本地 PaddleOCR-VL 回退）
      */
     private LlmConfig getOcrConfig() {
         // 1. 先从 settings 表读取 ocrConfig
@@ -79,7 +96,6 @@ public class ImageService {
                 boolean useMainLlm = node.path("useMainLlm").asBoolean(true);
 
                 if (enabled && !useMainLlm) {
-                    // 使用独立的 OCR 配置
                     LlmConfig config = new LlmConfig();
                     config.setProvider(node.path("provider").asText("custom"));
                     config.setApiKey(node.path("apiKey").asText(""));
@@ -94,14 +110,41 @@ public class ImageService {
             }
         }
 
-        // 2. 回退到 llm_configs 表中 purpose=ocr
+        // 2. 回退到 llm_configs 表中 purpose=ocr / purpose=vlm
         LlmConfig ocrConfig = llmService.getActiveOcrConfig();
         if (ocrConfig != null) {
             return ocrConfig;
         }
 
-        // 3. 最终回退到 chat 配置
-        return llmService.getActiveChatConfig();
+        // 3. 检查 chat 配置是否支持 vision
+        LlmConfig chatConfig = llmService.getActiveChatConfig();
+        if (chatConfig != null && supportsVision(chatConfig)) {
+            log.info("OCR 配置：复用支持 vision 的 chat 配置 ({})", chatConfig.getModel());
+            return chatConfig;
+        }
+
+        // 4. 无可用的 vision 配置，返回 null 让下游触发本地 PaddleOCR-VL 回退
+        log.warn("OCR 配置：未找到支持 vision 的 LLM 配置，将使用本地 PaddleOCR-VL 后备");
+        return null;
+    }
+
+    /**
+     * 判断 LLM 配置是否支持 vision（视觉）能力
+     * 通过 provider 和 model 名称中的关键词判断
+     */
+    private boolean supportsVision(LlmConfig config) {
+        if (config == null) return false;
+        // Anthropic Claude 3+ 系列均支持 vision
+        if ("anthropic".equals(config.getProvider())) return true;
+        // Google Gemini 支持 vision
+        if ("google".equals(config.getProvider())) return true;
+        // 通过 model 名称判断
+        String model = config.getModel() != null ? config.getModel().toLowerCase() : "";
+        return model.contains("-vl") || model.contains("vl-") || model.contains("vision")
+                || model.contains("gemini") || model.contains("claude")
+                || model.contains("gpt-4o") || model.contains("gpt-4-turbo")
+                || model.contains("qwen2-vl") || model.contains("qwen2.5-vl")
+                || model.contains("internvl") || model.contains("glm-4v");
     }
 
     /**
@@ -245,7 +288,7 @@ public class ImageService {
                 String pageSuffix = img.page() != null ? " 第" + img.page() + "页" : "";
                 entry.setTitle(sourceName + " 图片#" + (img.index() + 1) + pageSuffix);
                 entry.setEntryType("image");
-                entry.setLibrary(library);
+                entry.setEntryLibrary(library);
                 entry.setDocumentId(docId);
                 entry.setSourceName(sourceName);
                 entry.setContent(caption);
@@ -471,41 +514,106 @@ public class ImageService {
 
     /**
      * VLM-OCR：将表格图片识别为 Markdown 表格
+     * 优先使用远程 VLM API，失败时回退到本地 PaddleOCR-VL
      * @param imageData 图片字节数据
      * @param mimeType 图片MIME类型
      * @return Markdown 格式的表格
      */
     public String ocrTableImage(byte[] imageData, String mimeType) {
+        // 1. 尝试 VLM API
         try {
             LlmConfig config = getOcrConfig();
-            if (config == null) {
-                return "[OCR失败：未配置OCR/VLM模型，请在设置中配置]";
+            if (config != null) {
+                log.info("表格 OCR：使用 VLM API ({})", config.getModel());
+                String base64 = Base64.getEncoder().encodeToString(imageData);
+                String systemPrompt = """
+                        你是一个专业的表格OCR识别助手。请精确识别图片中的表格内容，并将其转换为Markdown表格格式。
+
+                        要求：
+                        1. 严格保持原表格的行列结构
+                        2. 保留所有单元格中的文字内容
+                        3. 使用标准Markdown表格语法（|分隔列，---分隔表头）
+                        4. 如果表格跨页/被截断，只输出当前图片中可见的部分
+                        5. 只输出Markdown表格，不要其他文字说明
+                        """;
+                String userMessage = "请将这张图片中的表格转换为Markdown格式。";
+
+                String result = llmService.chatWithVision(config, systemPrompt, userMessage, base64, mimeType);
+                String cleaned = cleanMarkdownTable(result);
+                if (cleaned.contains("<table") || cleaned.contains("<tr")) {
+                    cleaned = htmlToMarkdownTable(cleaned);
+                }
+                if (cleaned != null && !cleaned.isEmpty() && !cleaned.startsWith("[OCR失败")) {
+                    return cleaned;
+                }
+                log.warn("表格 OCR：VLM 返回空结果，尝试本地 PaddleOCR-VL 后备");
+            } else {
+                log.info("表格 OCR：无可用 VLM 配置，使用本地 PaddleOCR-VL");
             }
-
-            String base64 = Base64.getEncoder().encodeToString(imageData);
-            String systemPrompt = """
-                    你是一个专业的表格OCR识别助手。请精确识别图片中的表格内容，并将其转换为Markdown表格格式。
-
-                    要求：
-                    1. 严格保持原表格的行列结构
-                    2. 保留所有单元格中的文字内容
-                    3. 使用标准Markdown表格语法（|分隔列，---分隔表头）
-                    4. 如果表格跨页/被截断，只输出当前图片中可见的部分
-                    5. 只输出Markdown表格，不要其他文字说明
-                    """;
-            String userMessage = "请将这张图片中的表格转换为Markdown格式。";
-
-            String result = llmService.chatWithVision(config, systemPrompt, userMessage, base64, mimeType);
-            String cleaned = cleanMarkdownTable(result);
-            // 如果 VLM 返回了 HTML 表格格式，自动转换为 Markdown
-            if (cleaned.contains("<table") || cleaned.contains("<tr")) {
-                cleaned = htmlToMarkdownTable(cleaned);
-            }
-            return cleaned;
         } catch (Exception e) {
-            log.warn("表格图片OCR失败: {}", e.getMessage());
-            return "[OCR失败: " + e.getMessage() + "]";
+            log.warn("表格 OCR：VLM API 调用失败 ({}), 尝试本地 PaddleOCR-VL 后备", e.getMessage());
         }
+
+        // 2. 回退到本地 PaddleOCR-VL
+        try {
+            String localResult = ocrTableImageLocal(imageData, mimeType);
+            if (localResult != null && !localResult.isEmpty() && !localResult.startsWith("[OCR失败")) {
+                log.info("表格 OCR：本地 PaddleOCR-VL 成功");
+                return localResult;
+            }
+        } catch (Exception e) {
+            log.warn("表格 OCR：本地 PaddleOCR-VL 也失败: {}", e.getMessage());
+        }
+
+        // 3. 两者都失败
+        return "[OCR失败：VLM API 不可用且本地 PaddleOCR-VL 未启动。请配置支持 vision 的 VLM 模型，或启动 parser-service (pip install paddleocr-vl)]";
+    }
+
+    /**
+     * 本地 PaddleOCR-VL 表格识别（通过 parser-service）
+     * @param imageData 图片字节数据
+     * @param mimeType 图片MIME类型
+     * @return Markdown 格式的表格
+     */
+    private String ocrTableImageLocal(byte[] imageData, String mimeType) throws Exception {
+        String boundary = "----OCRBoundary" + System.currentTimeMillis();
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+
+        // 构建 multipart 请求体
+        baos.write(("--" + boundary + "\r\n").getBytes());
+        baos.write(("Content-Disposition: form-data; name=\"image\"; filename=\"table.png\"\r\n").getBytes());
+        baos.write(("Content-Type: " + mimeType + "\r\n\r\n").getBytes());
+        baos.write(imageData);
+        baos.write(("\r\n--" + boundary + "--\r\n").getBytes());
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(parserServiceUrl + "/api/ocr-table"))
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .timeout(Duration.ofSeconds(120))
+                .POST(HttpRequest.BodyPublishers.ofByteArray(baos.toByteArray()))
+                .build();
+
+        HttpResponse<String> response = parserHttpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        if (response.statusCode() != 200) {
+            String body = response.body();
+            if (response.statusCode() == 503) {
+                throw new RuntimeException("PaddleOCR-VL 未安装，请运行: pip install paddleocr-vl");
+            }
+            throw new RuntimeException("本地 OCR 服务返回错误 (HTTP " + response.statusCode() + "): "
+                    + (body != null && body.length() > 200 ? body.substring(0, 200) : body));
+        }
+
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.databind.JsonNode json = mapper.readTree(response.body());
+        if (json.has("markdown")) {
+            String md = json.get("markdown").asText();
+            return cleanMarkdownTable(md);
+        }
+        if (json.has("error")) {
+            throw new RuntimeException("本地 OCR 错误: " + json.get("error").asText());
+        }
+        return "";
     }
 
     /**
@@ -793,7 +901,7 @@ public class ImageService {
         KnowledgeEntry entry = new KnowledgeEntry();
         entry.setTitle(filename);
         entry.setEntryType("table");
-        entry.setLibrary(library);
+        entry.setEntryLibrary(library);
         entry.setDocumentId(docId);
         entry.setSourceName(filename);
         entry.setContent(caption);
@@ -856,7 +964,7 @@ public class ImageService {
         KnowledgeEntry entry = new KnowledgeEntry();
         entry.setTitle(filename);
         entry.setEntryType("image");
-        entry.setLibrary(library);
+        entry.setEntryLibrary(library);
         entry.setDocumentId(docId);
         entry.setSourceName(filename);
         entry.setContent(caption);

@@ -134,7 +134,7 @@ public class VectorSearchService {
             Map<String, String> meta = new HashMap<>();
             meta.put("title", entry.getTitle() != null ? entry.getTitle() : "");
             meta.put("content", entry.getContent() != null ? entry.getContent() : "");
-            meta.put("library", entry.getLibrary() != null ? entry.getLibrary() : "");
+            meta.put("library", entry.getEntryLibrary() != null ? entry.getEntryLibrary() : "");
             meta.put("sourceName", entry.getSourceName() != null ? entry.getSourceName() : "");
             meta.put("entryType", entry.getEntryType() != null ? entry.getEntryType() : "");
             meta.put("mediaType", entry.getMediaType() != null ? entry.getMediaType() : "text");

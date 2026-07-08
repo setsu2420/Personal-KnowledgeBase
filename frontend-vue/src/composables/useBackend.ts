@@ -31,7 +31,7 @@ async function checkBackendStatus(): Promise<BackendStatus> {
 
   // Web 降级：调用 /api/health 或任何可用端点
   try {
-    const resp = await fetch('/api/health', { method: 'GET', signal: AbortSignal.timeout(3000) })
+    const resp = await fetch('http://localhost:8080/api/health', { method: 'GET', signal: AbortSignal.timeout(3000) })
     return resp.ok ? 'running' : 'stopped'
   } catch {
     return 'unknown'

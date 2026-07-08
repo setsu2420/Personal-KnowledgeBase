@@ -21,6 +21,7 @@ uploads/
 raw/
 config/
 origin/
+Test-Project/
 
 # 构建产物
 target/
@@ -49,6 +50,9 @@ uploads/raw/
 .pytest_cache/
 __pycache__/
 *.pyc
+
+# 测试文件（不开源）
+tests/
 
 # 项目文件（不开源）
 *.docx

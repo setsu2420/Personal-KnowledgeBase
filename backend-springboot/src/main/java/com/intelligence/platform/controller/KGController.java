@@ -75,7 +75,7 @@ public class KGController {
             m.put("projectId", node.getProjectId());
             KnowledgeEntry entry = titleToEntry.get(node.getLabel());
             m.put("keywords", entry != null ? entry.getKeywords() : null);
-            m.put("library", entry != null ? entry.getLibrary() : null);
+            m.put("library", entry != null ? entry.getEntryLibrary() : null);
             enriched.add(m);
         }
         return enriched;
