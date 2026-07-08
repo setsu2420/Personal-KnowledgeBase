@@ -37,30 +37,28 @@ onUnmounted(() => {
   <UpdateDialog />
   <!-- 主界面：SplashScreen 消失后 fade-in 出现 -->
   <ErrorBoundary>
-    <Transition name="fade-in" appear>
-      <router-view v-show="isReady" />
+    <Transition name="page-fade" appear>
+      <div class="page-container">
+        <router-view v-show="isReady" />
+      </div>
     </Transition>
   </ErrorBoundary>
 </template>
 
 <style>
-/* Global resets or styling can go here */
-body {
-  margin: 0;
-  padding: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  background-color: #0d0f15;
+/* 主界面 page-fade 过渡动画 */
+.page-fade-enter-active {
+  transition: opacity 0.3s ease;
 }
-
-/* 主界面 fade-in 过渡动画 */
-.fade-in-enter-active {
-  transition: opacity 0.6s ease-out;
+.page-fade-leave-active {
+  transition: opacity 0.2s ease;
 }
-.fade-in-enter-from {
+.page-fade-enter-from,
+.page-fade-leave-to {
   opacity: 0;
 }
-.fade-in-enter-to {
-  opacity: 1;
+
+.page-container {
+  width: 100%;
 }
 </style>

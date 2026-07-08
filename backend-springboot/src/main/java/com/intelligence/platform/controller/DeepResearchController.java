@@ -1,17 +1,17 @@
 package com.intelligence.platform.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.intelligence.platform.common.PageResult;
 import com.intelligence.platform.entity.DeepResearch;
 import com.intelligence.platform.entity.KnowledgeEntry;
-import com.intelligence.platform.entity.Setting;
 import com.intelligence.platform.mapper.DeepResearchMapper;
 import com.intelligence.platform.mapper.KnowledgeEntryMapper;
-import com.intelligence.platform.mapper.SettingMapper;
 import com.intelligence.platform.service.LlmService;
 import com.intelligence.platform.service.ProjectContext;
+import com.intelligence.platform.service.SettingService;
 import com.intelligence.platform.service.VectorIndex;
 import com.intelligence.platform.service.VectorSearchService;
 import com.intelligence.platform.service.WebSearchService;
@@ -51,19 +51,11 @@ public class DeepResearchController {
     @Autowired
     private ExecutorService taskExecutor;
     @Autowired
-    private SettingMapper settingMapper;
+    private SettingService settingService;
     @Autowired
     private VectorSearchService vectorSearchService;
 
     private final ObjectMapper mapper = new ObjectMapper();
-
-    private int getSettingInt(String key, int defaultValue) {
-        Setting s = settingMapper.selectById(key);
-        if (s != null && s.getValue() != null) {
-            try { return Integer.parseInt(s.getValue()); } catch (NumberFormatException e) { return defaultValue; }
-        }
-        return defaultValue;
-    }
 
     @GetMapping
     public PageResult<DeepResearch> list(
@@ -73,7 +65,7 @@ public class DeepResearchController {
 
         LambdaQueryWrapper<DeepResearch> wrapper = new LambdaQueryWrapper<>();
         Long pid = projectContext.getCurrentProjectId();
-        if (pid != null) wrapper.eq(DeepResearch::getProjectId, pid);
+        if (pid != null) wrapper.and(w -> w.eq(DeepResearch::getProjectId, pid).or().isNull(DeepResearch::getProjectId));
         if (status != null && !status.isEmpty()) wrapper.eq(DeepResearch::getStatus, status);
         wrapper.orderByDesc(DeepResearch::getCreatedAt);
 
@@ -116,26 +108,28 @@ public class DeepResearchController {
         String now = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         try {
             // 更新状态为运行中
-            DeepResearch update = new DeepResearch();
-            update.setId(taskId);
-            update.setStatus("running");
-            update.setProgress(10);
-            deepResearchMapper.updateById(update);
+            deepResearchMapper.update(null,
+                    new LambdaUpdateWrapper<DeepResearch>()
+                            .eq(DeepResearch::getId, taskId)
+                            .set(DeepResearch::getStatus, "running")
+                            .set(DeepResearch::getProgress, 10)
+            );
 
             // 1. 生成搜索查询
             List<String> queries = webSearchService.generateSearchQueries(topic);
-            update = new DeepResearch();
-            update.setId(taskId);
-            update.setSearchQueries(mapper.writeValueAsString(queries));
-            update.setProgress(25);
-            deepResearchMapper.updateById(update);
+            deepResearchMapper.update(null,
+                    new LambdaUpdateWrapper<DeepResearch>()
+                            .eq(DeepResearch::getId, taskId)
+                            .set(DeepResearch::getSearchQueries, mapper.writeValueAsString(queries))
+                            .set(DeepResearch::getProgress, 25)
+            );
 
             // 2. 执行网络搜索（参考 llm_wiki 的去重逻辑）
             boolean webSearchEnabled = webSearchService.isSearchEnabled();
             StringBuilder allResults = new StringBuilder();
             Set<String> seenUrls = new HashSet<>();
             int totalSources = 0;
-            int maxSources = getSettingInt("research_max_sources", 20); // 最大来源数
+            int maxSources = settingService.getInt("research_max_sources", 20); // 最大来源数
             List<String> searchErrors = new ArrayList<>();
 
             // 只在网络搜索启用时执行外部搜索
@@ -144,7 +138,7 @@ public class DeepResearchController {
                     if (totalSources >= maxSources) break; // 达到上限，停止搜索
 
                     try {
-                        int maxResultsPerQuery = getSettingInt("research_max_results_per_query", 10);
+                        int maxResultsPerQuery = settingService.getInt("research_max_results_per_query", 10);
                         List<WebSearchService.SearchResult> results = webSearchService.search(query, maxResultsPerQuery);
 
                         for (WebSearchService.SearchResult r : results) {
@@ -187,19 +181,51 @@ public class DeepResearchController {
 
             // 如果所有搜索都失败，标记错误
             if (totalSources == 0 && !searchErrors.isEmpty()) {
-                update = new DeepResearch();
-                update.setId(taskId);
-                update.setStatus("failed");
-                update.setError("所有搜索均失败: " + String.join("; ", searchErrors));
-                deepResearchMapper.updateById(update);
+                deepResearchMapper.update(null,
+                        new LambdaUpdateWrapper<DeepResearch>()
+                                .eq(DeepResearch::getId, taskId)
+                                .set(DeepResearch::getStatus, "failed")
+                                .set(DeepResearch::getError, "所有搜索均失败: " + String.join("; ", searchErrors))
+                );
                 return;
             }
 
-            update = new DeepResearch();
-            update.setId(taskId);
-            update.setSourceCount(totalSources);
-            update.setProgress(60);
-            deepResearchMapper.updateById(update);
+            deepResearchMapper.update(null,
+                    new LambdaUpdateWrapper<DeepResearch>()
+                            .eq(DeepResearch::getId, taskId)
+                            .set(DeepResearch::getSourceCount, totalSources)
+                            .set(DeepResearch::getProgress, 45)
+            );
+
+            // 构建用户消息（供深度思考和综合报告共用）
+            String userMessage = "研究主题: **" + topic + "**\n\n## 搜索到的资料\n\n" + allResults;
+
+            // 深度思考步骤：对搜索资料进行逐步推理分析
+            StringBuilder thinkingPrompt = new StringBuilder();
+            thinkingPrompt.append("你是一个专业的深度思考分析师。请对以下研究主题和搜索到的资料进行逐步推理分析。\n\n");
+            thinkingPrompt.append("## 推理要求\n");
+            thinkingPrompt.append("请按照以下步骤进行思考，每一步都要详细展开：\n");
+            thinkingPrompt.append("1. **资料梳理**：总结搜索到的关键资料，识别核心事实和数据\n");
+            thinkingPrompt.append("2. **逻辑分析**：分析各资料之间的关联、矛盾和互补关系\n");
+            thinkingPrompt.append("3. **深层洞察**：挖掘资料背后的深层逻辑、趋势和隐含信息\n");
+            thinkingPrompt.append("4. **假设验证**：对关键假设进行推敲，指出哪些有充分证据支持，哪些仍需验证\n");
+            thinkingPrompt.append("5. **初步结论**：基于以上推理，形成初步分析结论\n\n");
+            thinkingPrompt.append("请使用中文，推理过程要具体、有逻辑深度，不要泛泛而谈。");
+
+            String thinkingProcess;
+            try {
+                thinkingProcess = llmService.chatWithActive(thinkingPrompt.toString(), userMessage);
+            } catch (Exception llmErr) {
+                log.warn("深度思考步骤失败，将跳过: {}", llmErr.getMessage());
+                thinkingProcess = "深度思考步骤执行失败，已跳过。";
+            }
+
+            deepResearchMapper.update(null,
+                    new LambdaUpdateWrapper<DeepResearch>()
+                            .eq(DeepResearch::getId, taskId)
+                            .set(DeepResearch::getProgress, 60)
+                            .set(DeepResearch::getThinkingProcess, thinkingProcess)
+            );
 
             // 获取本地词条索引，用于 [[双链]] 交叉引用 (与 llm_wiki 彻底一致)
             StringBuilder wikiIndex = new StringBuilder();
@@ -234,36 +260,42 @@ public class DeepResearchController {
             systemPrompt.append("- 使用中文\n");
             systemPrompt.append("- 字数不少于1000字\n");
 
-            String userMessage = "研究主题: **" + topic + "**\n\n## 搜索到的资料\n\n" + allResults;
+            systemPrompt.append("\n## 深度思考参考\n");
+            systemPrompt.append("以下是你之前的深度思考过程，可以在综合报告中引用关键推理：\n");
+            systemPrompt.append(thinkingProcess).append("\n\n");
 
             String synthesis;
             try {
                 synthesis = llmService.chatWithActive(systemPrompt.toString(), userMessage);
             } catch (Exception llmErr) {
-                update = new DeepResearch();
-                update.setId(taskId);
-                update.setStatus("failed");
-                update.setError("LLM综合分析失败: " + llmErr.getMessage()
-                        + "。请确保已在系统配置中启用至少一个LLM配置。");
-                deepResearchMapper.updateById(update);
+                deepResearchMapper.update(null,
+                        new LambdaUpdateWrapper<DeepResearch>()
+                                .eq(DeepResearch::getId, taskId)
+                                .set(DeepResearch::getStatus, "failed")
+                                .set(DeepResearch::getError, "LLM综合分析失败: " + llmErr.getMessage()
+                                        + "。请确保已在系统配置中启用至少一个LLM配置。")
+                );
                 return;
             }
 
             // 4. 完成
-            update = new DeepResearch();
-            update.setId(taskId);
-            update.setStatus("completed");
-            update.setProgress(100);
-            update.setSynthesis(synthesis);
-            update.setCompletedAt(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-            deepResearchMapper.updateById(update);
+            deepResearchMapper.update(null,
+                    new LambdaUpdateWrapper<DeepResearch>()
+                            .eq(DeepResearch::getId, taskId)
+                            .set(DeepResearch::getStatus, "completed")
+                            .set(DeepResearch::getProgress, 100)
+                            .set(DeepResearch::getSynthesis, synthesis)
+                            .set(DeepResearch::getThinkingProcess, thinkingProcess)
+                            .set(DeepResearch::getCompletedAt, LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")))
+            );
 
         } catch (Exception e) {
-            DeepResearch update = new DeepResearch();
-            update.setId(taskId);
-            update.setStatus("failed");
-            update.setError(e.getMessage());
-            deepResearchMapper.updateById(update);
+            deepResearchMapper.update(null,
+                    new LambdaUpdateWrapper<DeepResearch>()
+                            .eq(DeepResearch::getId, taskId)
+                            .set(DeepResearch::getStatus, "failed")
+                            .set(DeepResearch::getError, e.getMessage())
+            );
         }
     }
 
@@ -272,10 +304,11 @@ public class DeepResearchController {
      */
     @PutMapping("/{id}/cancel")
     public Map<String, Object> cancel(@PathVariable Long id) {
-        DeepResearch research = new DeepResearch();
-        research.setId(id);
-        research.setStatus("cancelled");
-        deepResearchMapper.updateById(research);
+        deepResearchMapper.update(null,
+                new LambdaUpdateWrapper<DeepResearch>()
+                        .eq(DeepResearch::getId, id)
+                        .set(DeepResearch::getStatus, "cancelled")
+        );
         return Map.of("message", "任务已取消");
     }
 

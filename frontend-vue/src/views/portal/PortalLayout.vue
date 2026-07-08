@@ -9,8 +9,7 @@
         <el-dropdown trigger="click" @command="handleProjectCommand">
           <el-button 
             size="small" 
-            style="color: #ffffff !important; background-color: rgba(255, 255, 255, 0.15) !important; border-color: rgba(255, 255, 255, 0.3) !important;"
-            class="project-select-btn"
+            class="project-select-trigger"
           >
             <el-icon style="margin-right: 4px;"><Briefcase /></el-icon>
             {{ currentProjectName }}
@@ -27,7 +26,7 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-        <el-button type="primary" size="small" text @click="$router.push('/admin')" style="color: rgba(255,255,255,0.8);">
+        <el-button type="primary" size="small" text class="admin-btn" @click="$router.push('/admin')">
           后台管理
         </el-button>
       </div>
@@ -193,7 +192,7 @@ onMounted(loadProjects)
 
 .top-bar {
   height: 48px;
-  background: linear-gradient(90deg, #2F5496, #4A90D9);
+  background: var(--gradient-header);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -262,10 +261,11 @@ onMounted(loadProjects)
   font-size: 15px;
   color: #64748B;
   border-bottom: 3px solid transparent;
-  transition: all 0.2s;
+  transition: all var(--transition-base);
 }
 
 .tab-item:hover {
+  opacity: 0.85;
   color: #2F5496;
 }
 
@@ -278,9 +278,24 @@ onMounted(loadProjects)
 .tab-content {
   padding: 20px;
 }
-.project-select-btn:hover, .project-select-btn:focus {
-  background-color: rgba(255, 255, 255, 0.3) !important;
-  color: #ffffff !important;
-  border-color: rgba(255, 255, 255, 0.6) !important;
+
+.project-select-trigger {
+  color: #fff !important;
+  background-color: rgba(255, 255, 255, 0.15) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+}
+.project-select-trigger:hover,
+.project-select-trigger:focus {
+  background-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.admin-btn {
+  color: #fff;
+}
+.admin-btn:hover {
+  color: #fff;
+  background-color: rgba(255, 255, 255, 0.1);
 }
 </style>

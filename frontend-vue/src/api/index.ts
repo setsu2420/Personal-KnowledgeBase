@@ -34,13 +34,6 @@ api.interceptors.request.use((config) => {
   if (projectId) {
     config.headers['X-Project-Id'] = String(projectId)
   }
-  // 针对 GET 请求自动添加时间戳参数，强制浏览器向服务器请求最新数据，防止本地缓存
-  if (config.method === 'get') {
-    config.params = {
-      ...config.params,
-      _t: Date.now()
-    }
-  }
   return config
 })
 
@@ -58,6 +51,11 @@ api.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+// 用于轮询的请求头（禁用缓存）
+export const noCacheHeaders = {
+  headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+}
 
 // Projects (项目隔离 - 参考 llm_wiki WikiProject)
 export const getProjects = () => api.get('/projects')

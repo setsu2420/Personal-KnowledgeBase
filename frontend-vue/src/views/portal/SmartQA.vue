@@ -38,88 +38,90 @@
           </div>
 
           <div class="chat-messages" ref="chatRef">
-            <div v-for="(msg, i) in messages" :key="i" :class="['message', msg.role]">
-              <div :class="msg.role === 'user' ? 'message-bubble user-bubble' : 'message-wrapper'">
-                <!-- 用户消息 -->
-                <div v-if="msg.role === 'user'" class="bubble-text" v-html="formatText(msg.content, 'user')" />
+            <TransitionGroup name="msg-slide" tag="div">
+              <div v-for="(msg, i) in messages" :key="i" :class="['message', msg.role]">
+                <div :class="msg.role === 'user' ? 'message-bubble user-bubble' : 'message-wrapper'">
+                  <!-- 用户消息 -->
+                  <div v-if="msg.role === 'user'" class="bubble-text" v-html="formatText(msg.content, 'user')" />
 
-                <!-- 助手消息 -->
-                <template v-else>
-                  <!-- 文字回答（表格由 LLM 通过 markdown 自然生成） -->
-                  <div class="answer-text markdown-body" v-html="formatText(msg.content, 'assistant')" />
+                  <!-- 助手消息 -->
+                  <template v-else>
+                    <!-- 文字回答（表格由 LLM 通过 markdown 自然生成） -->
+                    <div class="answer-text markdown-body" v-html="formatText(msg.content, 'assistant')" />
 
-                  <!-- 置信度 -->
-                  <div v-if="msg.confidence" class="confidence">
-                    置信度: {{ (msg.confidence * 100).toFixed(0) }}%
-                  </div>
-
-                  <!-- 引用来源面板（回答结束后显示） -->
-                  <div v-if="msg.sources && msg.sources.length > 0" class="references-panel">
-                    <div class="references-header" @click="toggleRefs(i)">
-                      <span class="references-icon">&#128196;</span>
-                      <span class="references-title">引用来源 ({{ msg.sources.length }})</span>
-                      <span class="references-toggle">{{ expandedRefs.has(i) ? '收起' : '展开' }}</span>
+                    <!-- 置信度 -->
+                    <div v-if="msg.confidence" class="confidence">
+                      置信度: {{ (msg.confidence * 100).toFixed(0) }}%
                     </div>
-                    <div class="references-list" :class="{ collapsed: !expandedRefs.has(i) }">
-                      <div v-for="(src, j) in (expandedRefs.has(i) ? msg.sources : msg.sources.slice(0, 3))" :key="j" class="reference-item">
-                        <span class="ref-index">[{{ src.index || (j + 1) }}]</span>
-                        <span :class="['ref-type-badge', 'ref-type-' + (src.media_type || 'text')]">
-                          {{ refTypeLabel(src.media_type || 'text') }}
-                        </span>
-                        <span class="ref-title" :title="src.source_origin || ''">
-                          {{ src.title }}
-                          <span v-if="src.source_name" style="color: #64748B; font-size: 11px; margin-left: 6px;">
-                            (来自: {{ src.source_name }})
+
+                    <!-- 引用来源面板（回答结束后显示） -->
+                    <div v-if="msg.sources && msg.sources.length > 0" class="references-panel">
+                      <div class="references-header" @click="toggleRefs(i)">
+                        <span class="references-icon">&#128196;</span>
+                        <span class="references-title">引用来源 ({{ msg.sources.length }})</span>
+                        <span class="references-toggle">{{ expandedRefs.has(i) ? '收起' : '展开' }}</span>
+                      </div>
+                      <div class="references-list" :class="{ collapsed: !expandedRefs.has(i) }">
+                        <div v-for="(src, j) in (expandedRefs.has(i) ? msg.sources : msg.sources.slice(0, 3))" :key="j" class="reference-item">
+                          <span class="ref-index">[{{ src.index || (j + 1) }}]</span>
+                          <span :class="['ref-type-badge', 'ref-type-' + (src.media_type || 'text')]">
+                            {{ refTypeLabel(src.media_type || 'text') }}
                           </span>
-                        </span>
-                      </div>
-                      <div v-if="!expandedRefs.has(i) && msg.sources.length > 3" class="references-more" @click.stop="expandedRefs.add(i)">
-                        +{{ msg.sources.length - 3 }} 更多来源...
+                          <span class="ref-title" :title="src.source_origin || ''">
+                            {{ src.title }}
+                            <span v-if="src.source_name" style="color: #64748B; font-size: 11px; margin-left: 6px;">
+                              (来自: {{ src.source_name }})
+                            </span>
+                          </span>
+                        </div>
+                        <div v-if="!expandedRefs.has(i) && msg.sources.length > 3" class="references-more" @click.stop="expandedRefs.add(i)">
+                          +{{ msg.sources.length - 3 }} 更多来源...
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <!-- 图片区域（回答结束后显示） -->
-                  <div v-if="msg.images && msg.images.length > 0" class="images-section">
-                    <div class="images-header" @click="toggleImages(i)">
-                      <span class="images-icon">&#128444;</span>
-                      <span class="images-title">相关图片 ({{ msg.images.length }})</span>
-                      <span class="images-toggle">{{ expandedImages.has(i) ? '收起' : '展开' }}</span>
-                    </div>
-                    <div class="images-content" :class="{ collapsed: !expandedImages.has(i) }">
-                      <div class="images-grid">
-                        <div v-for="(img, ii) in msg.images" :key="'i'+ii" class="image-wrapper" @click="previewImage(img)">
-                          <img
-                            :src="getImageUrl(img.media_path || '')"
-                            class="result-image"
-                            :alt="img.title || ''"
-                            @error="handleImageError"
-                          />
-                          <div class="image-error" style="display:none; padding:20px; background:#f5f5f5; text-align:center; color:#999; border-radius:4px;">
-                            图片加载失败: {{ img.media_path }}
+                    <!-- 图片区域（回答结束后显示） -->
+                    <div v-if="msg.images && msg.images.length > 0" class="images-section">
+                      <div class="images-header" @click="toggleImages(i)">
+                        <span class="images-icon">&#128444;</span>
+                        <span class="images-title">相关图片 ({{ msg.images.length }})</span>
+                        <span class="images-toggle">{{ expandedImages.has(i) ? '收起' : '展开' }}</span>
+                      </div>
+                      <div class="images-content" :class="{ collapsed: !expandedImages.has(i) }">
+                        <div class="images-grid">
+                          <div v-for="(img, ii) in msg.images" :key="'i'+ii" class="image-wrapper" @click="previewImage(img)">
+                            <img
+                              :src="getImageUrl(img.media_path || '')"
+                              class="result-image"
+                              :alt="img.title || ''"
+                              @error="handleImageError"
+                            />
+                            <div class="image-error" style="display:none; padding:20px; background:#f5f5f5; text-align:center; color:#999; border-radius:4px;">
+                              图片加载失败: {{ img.media_path }}
+                            </div>
                           </div>
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  <!-- 表格面板（回答结束后显示，去重后仅显示未在回答中的表格） -->
-                  <div v-if="getFilteredTables(msg).length > 0" class="tables-section">
-                    <div class="tables-header" @click="toggleTables(i)">
-                      <span class="tables-icon">&#128202;</span>
-                      <span class="tables-title">相关表格 ({{ getFilteredTables(msg).length }})</span>
-                      <span class="tables-toggle">{{ expandedTables.has(i) ? '收起' : '展开' }}</span>
-                    </div>
-                    <div class="tables-content" :class="{ collapsed: !expandedTables.has(i) }">
-                      <div v-for="(tbl, ti) in getFilteredTables(msg)" :key="'t'+ti" class="table-item">
-                        <div class="media-title">{{ tbl.title }}</div>
-                        <div class="markdown-table" v-html="renderMarkdownTable(tbl.table_markdown)" />
+                    <!-- 表格面板（回答结束后显示，去重后仅显示未在回答中的表格） -->
+                    <div v-if="getFilteredTables(msg).length > 0" class="tables-section">
+                      <div class="tables-header" @click="toggleTables(i)">
+                        <span class="tables-icon">&#128202;</span>
+                        <span class="tables-title">相关表格 ({{ getFilteredTables(msg).length }})</span>
+                        <span class="tables-toggle">{{ expandedTables.has(i) ? '收起' : '展开' }}</span>
+                      </div>
+                      <div class="tables-content" :class="{ collapsed: !expandedTables.has(i) }">
+                        <div v-for="(tbl, ti) in getFilteredTables(msg)" :key="'t'+ti" class="table-item">
+                          <div class="media-title">{{ tbl.title }}</div>
+                          <div class="markdown-table" v-html="renderMarkdownTable(tbl.table_markdown)" />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </template>
+                  </template>
+                </div>
               </div>
-            </div>
+            </TransitionGroup>
             <el-empty v-if="messages.length === 0" description="输入问题开始对话" />
           </div>
 
@@ -446,6 +448,7 @@ onMounted(async () => {
     console.warn('加载流式配置失败，使用默认值', e)
   }
 })
+
 </script>
 
 <style scoped>
@@ -771,4 +774,24 @@ onMounted(async () => {
 .markdown-body :deep(a:hover) { text-decoration: underline; }
 .markdown-body :deep(hr) { border: none; border-top: 1px solid #E2E8F0; margin: 10px 0; }
 .markdown-body :deep(img) { max-width: 100%; border-radius: 4px; }
+
+/* 消息气泡过渡动画 */
+.msg-slide-enter-active {
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.msg-slide-leave-active {
+  transition: all 0.2s ease-in;
+}
+.msg-slide-enter-from {
+  opacity: 0;
+  transform: translateY(20px);
+}
+.msg-slide-enter-to {
+  opacity: 1;
+  transform: translateY(0);
+}
+.msg-slide-leave-to {
+  opacity: 0;
+  transform: translateX(-10px);
+}
 </style>

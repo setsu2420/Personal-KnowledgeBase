@@ -19,7 +19,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.function.Consumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * LLM调用服务
@@ -108,6 +111,7 @@ public class LlmService {
     private String rerankProvider;
 
     private final ObjectMapper mapper = new ObjectMapper();
+    private static final Logger log = LoggerFactory.getLogger(LlmService.class);
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(30))
             .build();
@@ -342,51 +346,53 @@ public class LlmService {
      * @return LLM回复文本
      */
     public String chat(LlmConfig config, String systemPrompt, String userMessage) throws Exception {
-        String url = resolveChatUrl(config);
-        String body = buildChatBody(config, systemPrompt, userMessage);
-        String authHeader = buildAuthHeader(config);
+        return executeWithRetry(() -> {
+            String url = resolveChatUrl(config);
+            String body = buildChatBody(config, systemPrompt, userMessage);
+            String authHeader = buildAuthHeader(config);
 
-        HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .header("Content-Type", "application/json")
-                .timeout(Duration.ofSeconds(300))
-                .POST(HttpRequest.BodyPublishers.ofString(body));
+            HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(300))
+                    .POST(HttpRequest.BodyPublishers.ofString(body));
 
-        if (authHeader != null) {
-            reqBuilder.header("Authorization", authHeader);
-        }
-
-        // Anthropic / custom+anthropic_messages 特殊头
-        boolean isAnthropicWire = "anthropic".equals(config.getProvider())
-                || ("custom".equals(config.getProvider()) && "anthropic_messages".equals(config.getApiMode()));
-        if (isAnthropicWire && config.getApiKey() != null && !config.getApiKey().isEmpty()) {
-            reqBuilder.header("x-api-key", config.getApiKey());
-            reqBuilder.header("anthropic-version", "2023-06-01");
-        }
-
-        HttpResponse<String> response = httpClient.send(reqBuilder.build(),
-                HttpResponse.BodyHandlers.ofString());
-
-        if (response.statusCode() / 100 != 2) {
-            String errorBody = response.body();
-            // 尝试解析 JSON 错误信息
-            try {
-                JsonNode err = mapper.readTree(errorBody);
-                if (err.has("error")) {
-                    JsonNode errorNode = err.get("error");
-                    String msg = errorNode.has("message") ? errorNode.get("message").asText() : errorNode.asText();
-                    throw new RuntimeException("API 错误 (" + response.statusCode() + "): " + msg);
-                }
-            } catch (RuntimeException re) {
-                throw re;
-            } catch (Exception ignored) {
-                // 非 JSON 响应
+            if (authHeader != null) {
+                reqBuilder.header("Authorization", authHeader);
             }
-            throw new RuntimeException("API 请求失败 (HTTP " + response.statusCode() + "): "
-                    + (errorBody != null && errorBody.length() > 200 ? errorBody.substring(0, 200) : errorBody));
-        }
 
-        return parseChatResponse(config, response.body());
+            // Anthropic / custom+anthropic_messages 特殊头
+            boolean isAnthropicWire = "anthropic".equals(config.getProvider())
+                    || ("custom".equals(config.getProvider()) && "anthropic_messages".equals(config.getApiMode()));
+            if (isAnthropicWire && config.getApiKey() != null && !config.getApiKey().isEmpty()) {
+                reqBuilder.header("x-api-key", config.getApiKey());
+                reqBuilder.header("anthropic-version", "2023-06-01");
+            }
+
+            HttpResponse<String> response = httpClient.send(reqBuilder.build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() / 100 != 2) {
+                String errorBody = response.body();
+                // 尝试解析 JSON 错误信息
+                try {
+                    JsonNode err = mapper.readTree(errorBody);
+                    if (err.has("error")) {
+                        JsonNode errorNode = err.get("error");
+                        String msg = errorNode.has("message") ? errorNode.get("message").asText() : errorNode.asText();
+                        throw new RuntimeException("API 错误 (" + response.statusCode() + "): " + msg);
+                    }
+                } catch (RuntimeException re) {
+                    throw re;
+                } catch (Exception ignored) {
+                    // 非 JSON 响应
+                }
+                throw new RuntimeException("API 请求失败 (HTTP " + response.statusCode() + "): "
+                        + (errorBody != null && errorBody.length() > 200 ? errorBody.substring(0, 200) : errorBody));
+            }
+
+            return parseChatResponse(config, response.body());
+        }, "LLM调用");
     }
 
     /**
@@ -461,6 +467,9 @@ public class LlmService {
                     }
                 }
             }
+        } catch (Exception e) {
+            log.error("流式LLM调用异常: {}", e.getMessage(), e);
+            throw e;
         }
     }
 
@@ -810,7 +819,9 @@ public class LlmService {
             JsonNode candidates = root.get("candidates");
             if (candidates != null && candidates.isArray() && !candidates.isEmpty()) {
                 JsonNode parts = candidates.get(0).get("content").get("parts");
-                return parts.get(0).get("text").asText();
+                if (parts != null && parts.isArray() && !parts.isEmpty()) {
+                    return parts.get(0).get("text").asText();
+                }
             }
             return responseBody;
         }
@@ -818,7 +829,13 @@ public class LlmService {
         // OpenAI / Ollama / Azure / Custom / 中国提供商
         JsonNode choices = root.get("choices");
         if (choices != null && choices.isArray() && !choices.isEmpty()) {
-            return choices.get(0).get("message").get("content").asText();
+            JsonNode message = choices.get(0).get("message");
+            if (message != null && message.has("content")) {
+                return message.get("content").asText();
+            }
+        }
+        if (choices == null || !choices.isArray() || choices.isEmpty()) {
+            log.warn("LLM响应中choices数组为空");
         }
         if (root.has("error")) {
             return "错误: " + root.get("error").get("message").asText();
@@ -937,5 +954,28 @@ public class LlmService {
                         "desc", "自定义API端点", "region", "custom",
                         "baseUrl", "")
         );
+    }
+
+    /**
+     * 带指数退避重试的LLM调用
+     */
+    private String executeWithRetry(Callable<String> task, String operationName) throws Exception {
+        int maxRetries = 3;
+        long baseDelay = 1000;
+        Exception lastException = null;
+
+        for (int attempt = 0; attempt < maxRetries; attempt++) {
+            try {
+                return task.call();
+            } catch (Exception e) {
+                lastException = e;
+                if (attempt < maxRetries - 1) {
+                    long delay = baseDelay * (1L << attempt); // 1s, 2s, 4s
+                    log.warn("{} 第{}次失败，{}ms后重试: {}", operationName, attempt + 1, delay, e.getMessage());
+                    try { Thread.sleep(delay); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw e; }
+                }
+            }
+        }
+        throw new RuntimeException(operationName + " 重试" + maxRetries + "次后仍失败", lastException);
     }
 }

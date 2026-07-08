@@ -54,7 +54,18 @@
               <p style="margin-top: 12px; color: #94A3B8;">正在执行深度研究，请稍候...</p>
             </div>
 
-            <div v-else-if="selectedTask.synthesis" class="synthesis" v-html="formatSynthesis(selectedTask.synthesis)" />
+            <!-- 深度思考过程 -->
+            <div v-if="selectedTask.thinking_process && selectedTask.status === 'completed'" class="thinking-process-section">
+              <div class="thinking-process-header" @click="showThinking = !showThinking">
+                <el-icon><component :is="showThinking ? ArrowDown : ArrowRight" /></el-icon>
+                <span>深度思考过程</span>
+              </div>
+              <div v-show="showThinking" class="thinking-process-content">
+                <div class="thinking-text" v-html="formatSynthesis(selectedTask.thinking_process)"></div>
+              </div>
+            </div>
+
+            <div v-if="selectedTask.synthesis" class="synthesis" v-html="formatSynthesis(selectedTask.synthesis)" />
 
             <div v-else-if="selectedTask.error" class="error-msg">
               <el-alert :title="selectedTask.error" type="error" show-icon />
@@ -81,8 +92,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, reactive } from 'vue'
-import { Delete } from '@element-plus/icons-vue'
+import { ref, onMounted, onUnmounted, reactive } from 'vue'
+import { ArrowDown, ArrowRight, Delete } from '@element-plus/icons-vue'
 import { getDeepResearches, getDeepResearch, createDeepResearch, deleteDeepResearch } from '../../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
@@ -98,6 +109,7 @@ const tasks = ref<any[]>([])
 const selectedTask = ref<any>(null)
 const showNewResearch = ref(false)
 const starting = ref(false)
+const showThinking = ref(false)
 const newResearch = reactive({ topic: '' })
 // @ts-ignore
 let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -199,6 +211,10 @@ function startPolling() {
 onMounted(() => {
   loadTasks()
   startPolling()
+})
+
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer)
 })
 </script>
 
@@ -354,4 +370,62 @@ onMounted(() => {
 .synthesis :deep(img) { max-width: 100%; border-radius: 6px; margin: 8px 0; }
 
 .error-msg { padding: 20px; }
+
+.thinking-process-section {
+  margin-bottom: 20px;
+  border: 1px dashed #94A3B8;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.thinking-process-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #F8FAFC;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: #475569;
+  user-select: none;
+  transition: background 0.2s;
+}
+
+.thinking-process-header:hover {
+  background: #F1F5F9;
+}
+
+.thinking-process-content {
+  padding: 16px;
+  background: #FAFBFC;
+}
+
+.thinking-text {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #475569;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.thinking-text :deep(h1),
+.thinking-text :deep(h2),
+.thinking-text :deep(h3) {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  color: #334155;
+  margin: 12px 0 6px;
+}
+
+.thinking-text :deep(strong) {
+  color: #1E293B;
+  font-weight: 700;
+}
+
+.thinking-text :deep(p) { margin: 6px 0; }
+.thinking-text :deep(ul), .thinking-text :deep(ol) { margin: 6px 0; padding-left: 20px; }
+.thinking-text :deep(li) { margin: 3px 0; }
 </style>

@@ -3,13 +3,12 @@ package com.intelligence.platform.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.intelligence.platform.entity.KnowledgeEntry;
 import com.intelligence.platform.entity.QARecord;
-import com.intelligence.platform.entity.Setting;
 import com.intelligence.platform.mapper.KnowledgeEntryMapper;
 import com.intelligence.platform.mapper.QARecordMapper;
-import com.intelligence.platform.mapper.SettingMapper;
 import com.intelligence.platform.service.ImageService;
 import com.intelligence.platform.service.LlmService;
 import com.intelligence.platform.service.ProjectContext;
+import com.intelligence.platform.service.SettingService;
 import com.intelligence.platform.service.VectorIndex;
 import com.intelligence.platform.service.VectorSearchService;
 import org.slf4j.Logger;
@@ -47,32 +46,13 @@ public class QAChatController {
     @Autowired
     private QARecordMapper qaRecordMapper;
     @Autowired
-    private SettingMapper settingMapper;
+    private SettingService settingService;
     @Autowired
     private VectorSearchService vectorSearchService;
     @Autowired
     private ImageService imageService;
     @Autowired
     private ProjectContext projectContext;
-
-    /**
-     * 从settings表获取配置值
-     */
-    private int getSettingInt(String key, int defaultValue) {
-        Setting s = settingMapper.selectById(key);
-        if (s != null && s.getValue() != null) {
-            try { return Integer.parseInt(s.getValue()); } catch (NumberFormatException e) { return defaultValue; }
-        }
-        return defaultValue;
-    }
-
-    private float getSettingFloat(String key, float defaultValue) {
-        Setting s = settingMapper.selectById(key);
-        if (s != null && s.getValue() != null) {
-            try { return Float.parseFloat(s.getValue()); } catch (NumberFormatException e) { return defaultValue; }
-        }
-        return defaultValue;
-    }
 
     /**
      * 智能问答（Graph-RAG风格 + 多模态结构化返回）
@@ -92,11 +72,11 @@ public class QAChatController {
 
         try {
             // 1. 分类检索：文本 + 表格 + 图片
-            int maxEntries = getSettingInt("qa_max_entries", 10);
-            int imageTopK = getSettingInt("qa_image_topK", 5);
-            float imageThreshold = getSettingFloat("qa_image_threshold", 0.2f);
-            int tableTopK = getSettingInt("qa_table_topK", 3);
-            float tableThreshold = getSettingFloat("qa_table_threshold", 0.35f);
+            int maxEntries = settingService.getInt("qa_max_entries", 10);
+            int imageTopK = settingService.getInt("qa_image_topK", 5);
+            float imageThreshold = settingService.getFloat("qa_image_threshold", 0.2f);
+            int tableTopK = settingService.getInt("qa_table_topK", 3);
+            float tableThreshold = settingService.getFloat("qa_table_threshold", 0.35f);
 
             // 文本检索（含表格）
             List<KnowledgeEntry> relevantEntries = searchRelevantEntries(question, maxEntries);
@@ -201,7 +181,11 @@ public class QAChatController {
         }
     }
 
-    private static final ExecutorService streamExecutor = Executors.newCachedThreadPool();
+    private static final ExecutorService streamExecutor = Executors.newFixedThreadPool(8, r -> {
+        Thread t = new Thread(r, "qa-stream");
+        t.setDaemon(true);
+        return t;
+    });
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -228,11 +212,11 @@ public class QAChatController {
         streamExecutor.execute(() -> {
             try {
                 // 1. 知识检索
-                int maxEntries = getSettingInt("qa_max_entries", 20);
-                int imageTopK = getSettingInt("qa_image_topK", 5);
-                float imageThreshold = getSettingFloat("qa_image_threshold", 0.2f);
-                int tableTopK = getSettingInt("qa_table_topK", 3);
-                float tableThreshold = getSettingFloat("qa_table_threshold", 0.35f);
+                int maxEntries = settingService.getInt("qa_max_entries", 20);
+                int imageTopK = settingService.getInt("qa_image_topK", 5);
+                float imageThreshold = settingService.getFloat("qa_image_threshold", 0.2f);
+                int tableTopK = settingService.getInt("qa_table_topK", 3);
+                float tableThreshold = settingService.getFloat("qa_table_threshold", 0.35f);
 
                 List<KnowledgeEntry> relevantEntries = searchRelevantEntries(question, maxEntries);
                 String context = buildContext(relevantEntries);

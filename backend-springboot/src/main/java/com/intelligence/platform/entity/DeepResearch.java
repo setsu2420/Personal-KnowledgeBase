@@ -24,6 +24,8 @@ public class DeepResearch {
     private Integer sourceCount;
     /** 综合分析结果 */
     private String synthesis;
+    /** 深度思考过程 */
+    private String thinkingProcess;
     /** 进度百分比 */
     private Integer progress;
     /** 错误信息 */

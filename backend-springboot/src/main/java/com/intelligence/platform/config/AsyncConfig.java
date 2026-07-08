@@ -6,6 +6,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 
 /**
  * 异步任务配置
@@ -16,6 +17,15 @@ public class AsyncConfig {
 
     @Bean
     public ExecutorService taskExecutor() {
-        return Executors.newFixedThreadPool(4);
+        ThreadFactory threadFactory = new ThreadFactory() {
+            private int counter = 0;
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread t = new Thread(r, "deep-research-" + (++counter));
+                t.setDaemon(true);
+                return t;
+            }
+        };
+        return Executors.newFixedThreadPool(4, threadFactory);
     }
 }
