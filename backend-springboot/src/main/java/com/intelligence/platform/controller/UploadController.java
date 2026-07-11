@@ -579,4 +579,32 @@ public class UploadController {
         int lastDot = filename.lastIndexOf('.');
         return lastDot > 0 ? filename.substring(lastDot + 1).toLowerCase() : "";
     }
+
+    /**
+     * 手动重新处理卡在 parsed 状态的文档
+     */
+    @PostMapping("/recover-stuck")
+    public Map<String, Object> recoverStuckDocuments() {
+        try {
+            List<Document> stuckDocs = documentMapper.selectList(
+                    new LambdaQueryWrapper<Document>()
+                            .eq(Document::getStatus, "parsed")
+            );
+            
+            if (stuckDocs.isEmpty()) {
+                return Map.of("success", true, "message", "没有需要恢复的文档", "count", 0);
+            }
+            
+            int count = 0;
+            for (Document doc : stuckDocs) {
+                uploadTaskService.submit(doc.getId(), doc.getTitle(), doc.getDocType());
+                count++;
+            }
+            
+            return Map.of("success", true, "message", "已重新提交 " + count + " 个文档", "count", count);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return Map.of("success", false, "message", "恢复失败: " + e.getMessage());
+        }
+    }
 }

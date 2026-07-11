@@ -1,7 +1,11 @@
 package com.intelligence.platform.service;
 
+import com.intelligence.platform.entity.Document;
 import com.intelligence.platform.entity.KnowledgeEntry;
 import com.intelligence.platform.controller.KGController;
+import com.intelligence.platform.mapper.DocumentMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +40,40 @@ public class UploadTaskService {
 
     @Autowired
     private KGController kgController;
+
+    @Autowired
+    private DocumentMapper documentMapper;
+
+    /**
+     * 应用启动时自动恢复卡在 parsed/processing 状态的文档
+     * 解决后端重启导致内存任务队列丢失的问题
+     */
+    @PostConstruct
+    public void recoverStuckDocuments() {
+        try {
+            // 查找所有卡在 parsed 状态的文档（已解析但未抽取词条）
+            List<Document> stuckDocs = documentMapper.selectList(
+                    new LambdaQueryWrapper<Document>()
+                            .eq(Document::getStatus, "parsed")
+            );
+            
+            if (stuckDocs.isEmpty()) {
+                log.info("No stuck documents found during startup recovery");
+                return;
+            }
+            
+            log.info("Found {} stuck documents to recover during startup", stuckDocs.size());
+            
+            for (Document doc : stuckDocs) {
+                // 重新提交到处理队列
+                submit(doc.getId(), doc.getTitle(), doc.getDocType());
+                log.info("Re-queued stuck document: id={}, title={}", doc.getId(), doc.getTitle());
+            }
+            
+        } catch (Exception e) {
+            log.error("Failed to recover stuck documents during startup", e);
+        }
+    }
 
     public void submit(Long docId, String filename, String fileTypeHint) {
         tasks.put(docId, new UploadTask(
