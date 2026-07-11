@@ -133,20 +133,6 @@ npm run dev
 | `JAVA_OPTS` | JVM 参数 | `-Xms512m -Xmx2g` |
 | `SPRING_PROFILES_ACTIVE` | Spring 环境 | `production` |
 
-## 交付部署
-
-如需将项目打包交付给他人：
-
-```bash
-# 构建交付包
-./package-delivery.sh
-
-# 产出: intel-platform-delivery.tar.gz
-# 接收方只需: tar -xzf intel-platform-delivery.tar.gz && cd intel-platform-delivery && ./load-and-run.sh
-```
-
-详细部署文档请参考 [DELIVERY-GUIDE.md](DELIVERY-GUIDE.md)
-
 ## 许可证
 
 MIT License
