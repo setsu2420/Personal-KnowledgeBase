@@ -259,7 +259,7 @@ const stats = computed(() => ({
 async function loadData() {
   loading.value = true
   try {
-    const params: Record<string, any> = { library: 'chart', pageSize: 200 }
+    const params: Record<string, any> = { library: 'chart', pageSize: 200, includeImage: true }
     const res = await getKnowledgeEntries(params)
     // 图表库只显示图片和表格，过滤掉文本条目
     allItems.value = (res.data.items || []).filter(

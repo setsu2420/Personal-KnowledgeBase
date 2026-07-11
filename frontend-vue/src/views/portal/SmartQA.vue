@@ -47,7 +47,11 @@
                   <!-- 助手消息 -->
                   <template v-else>
                     <!-- 文字回答（表格由 LLM 通过 markdown 自然生成） -->
-                    <div class="answer-text markdown-body" v-html="formatText(msg.content, 'assistant')" />
+                    <div class="answer-text markdown-body" v-html="formatText(msg.content, 'assistant')">
+                      <button class="copy-btn" @click="copyAnswer(msg.content)" title="复制回答">
+                        <el-icon><DocumentCopy /></el-icon>
+                      </button>
+                    </div>
 
                     <!-- 置信度 -->
                     <div v-if="msg.confidence" class="confidence">
@@ -80,41 +84,26 @@
                       </div>
                     </div>
 
-                    <!-- 图片区域（回答结束后显示） -->
-                    <div v-if="msg.images && msg.images.length > 0" class="images-section">
+                    <!-- 图片区域（去重后显示，排除已在表格中出现的图片） -->
+                    <div v-if="getFilteredImages(msg).length > 0" class="images-section">
                       <div class="images-header" @click="toggleImages(i)">
                         <span class="images-icon">&#128444;</span>
-                        <span class="images-title">相关图片 ({{ msg.images.length }})</span>
+                        <span class="images-title">相关图片 ({{ getFilteredImages(msg).length }})</span>
                         <span class="images-toggle">{{ expandedImages.has(i) ? '收起' : '展开' }}</span>
                       </div>
                       <div class="images-content" :class="{ collapsed: !expandedImages.has(i) }">
                         <div class="images-grid">
-                          <div v-for="(img, ii) in msg.images" :key="'i'+ii" class="image-wrapper" @click="previewImage(img)">
+                          <div v-for="(img, ii) in getFilteredImages(msg)" :key="'i'+ii" class="image-wrapper" @click="previewImage(img)">
+                            <span class="image-index">图{{ String(ii + 1).padStart(2, '0') }}</span>
                             <img
                               :src="getImageUrl(img.media_path || '')"
                               class="result-image"
-                              :alt="img.title || ''"
                               @error="handleImageError"
                             />
                             <div class="image-error" style="display:none; padding:20px; background:#f5f5f5; text-align:center; color:#999; border-radius:4px;">
-                              图片加载失败: {{ img.media_path }}
+                              图片加载失败
                             </div>
                           </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- 表格面板（回答结束后显示，去重后仅显示未在回答中的表格） -->
-                    <div v-if="getFilteredTables(msg).length > 0" class="tables-section">
-                      <div class="tables-header" @click="toggleTables(i)">
-                        <span class="tables-icon">&#128202;</span>
-                        <span class="tables-title">相关表格 ({{ getFilteredTables(msg).length }})</span>
-                        <span class="tables-toggle">{{ expandedTables.has(i) ? '收起' : '展开' }}</span>
-                      </div>
-                      <div class="tables-content" :class="{ collapsed: !expandedTables.has(i) }">
-                        <div v-for="(tbl, ti) in getFilteredTables(msg)" :key="'t'+ti" class="table-item">
-                          <div class="media-title">{{ tbl.title }}</div>
-                          <div class="markdown-table" v-html="renderMarkdownTable(tbl.table_markdown)" />
                         </div>
                       </div>
                     </div>
@@ -149,7 +138,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, nextTick } from 'vue'
-import { Delete } from '@element-plus/icons-vue'
+import { Delete, DocumentCopy } from '@element-plus/icons-vue'
 import { askQuestion, askQuestionStream, getQAChatSessions, getQAChatSession, deleteQAChatSession, getMediaUrl, getSettings, updateSettings } from '../../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
@@ -177,7 +166,6 @@ const sessions = ref<any[]>([])
 const currentSessionId = ref('session_' + Date.now())
 const chatRef = ref<HTMLElement | null>(null)
 const expandedRefs = ref<Set<number>>(new Set())
-const expandedTables = ref<Set<number>>(new Set())
 const expandedImages = ref<Set<number>>(new Set())
 const previewVisible = ref(false)
 const previewUrl = ref('')
@@ -192,29 +180,38 @@ function formatText(text: string, role: 'user' | 'assistant' = 'assistant'): str
   return marked.parse(text) as string
 }
 
-/** 将markdown表格转为HTML */
-function renderMarkdownTable(markdown: string): string {
-  if (!markdown) return ''
-  return marked.parse(markdown) as string
+/** 过滤图片：排除已在表格中出现的图片（按ID去重），确保每个图表只出现一次 */
+function getFilteredImages(msg: Message): Array<any> {
+  if (!msg.images || msg.images.length === 0) return []
+  const tableIds = new Set((msg.tables || []).map((t: any) => t.id))
+  return msg.images.filter((img: any) => !tableIds.has(img.id))
 }
 
-/** 过滤掉已在回答文本中包含的表格（去重） */
-function getFilteredTables(msg: Message): Array<any> {
-  if (!msg.tables || msg.tables.length === 0) return []
-  if (!msg.content) return msg.tables
-  const answerText = msg.content.toLowerCase()
-  return msg.tables.filter(tbl => {
-    // 检查表格标题是否已在回答中出现
-    if (tbl.title && answerText.includes(tbl.title.toLowerCase())) return false
-    // 检查表格内容的前几个关键词是否已在回答中出现
-    if (tbl.table_markdown) {
-      // 提取表格第一行的非标题内容作为特征
-      const lines = tbl.table_markdown.split('\n').filter((l: string) => l.includes('|')).slice(0, 3)
-      const tableText = lines.join(' ').toLowerCase()
-      if (tableText.length > 10 && answerText.includes(tableText.substring(0, 30))) return false
+/** 一键复制回答内容 */
+async function copyAnswer(content: string) {
+  if (!content) {
+    ElMessage.warning('暂无可复制的内容')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(content)
+    ElMessage.success('已复制到剪贴板')
+  } catch (e) {
+    // fallback for older browsers
+    const textarea = document.createElement('textarea')
+    textarea.value = content
+    textarea.style.position = 'fixed'
+    textarea.style.left = '-9999px'
+    document.body.appendChild(textarea)
+    textarea.select()
+    try {
+      document.execCommand('copy')
+      ElMessage.success('已复制到剪贴板')
+    } catch (err) {
+      ElMessage.error('复制失败，请手动选择复制')
     }
-    return true
-  })
+    document.body.removeChild(textarea)
+  }
 }
 
 /** 从media_path构建可访问的图片URL */
@@ -250,15 +247,6 @@ function toggleRefs(index: number) {
     expandedRefs.value.delete(index)
   } else {
     expandedRefs.value.add(index)
-  }
-}
-
-/** 切换表格区域展开/折叠 */
-function toggleTables(index: number) {
-  if (expandedTables.value.has(index)) {
-    expandedTables.value.delete(index)
-  } else {
-    expandedTables.value.add(index)
   }
 }
 
@@ -328,7 +316,6 @@ function askWithStream(q: string) {
       if (meta) {
         messages.value[msgIndex].tables = meta.tables || []
         messages.value[msgIndex].images = meta.images || []
-        if (meta.tables?.length > 0) expandedTables.value.add(msgIndex)
         if (meta.images?.length > 0) expandedImages.value.add(msgIndex)
         if (result.sources?.length > 0) expandedRefs.value.add(msgIndex)
       }
@@ -358,11 +345,6 @@ async function askWithoutStream(q: string) {
     const msgIndex = messages.value.length - 1
     if (data.sources?.length > 0) expandedRefs.value.add(msgIndex)
     if (data.images?.length > 0) expandedImages.value.add(msgIndex)
-    // 非流式：表格去重后展示
-    if (data.tables?.length > 0) {
-      const filtered = getFilteredTables(messages.value[msgIndex])
-      if (filtered.length > 0) expandedTables.value.add(msgIndex)
-    }
     asking.value = false
     loadSessions()
     nextTick().then(() => {
@@ -526,14 +508,54 @@ onMounted(async () => {
 
 /* 助手回答文字 */
 .answer-text {
+  position: relative;
   background: #F8FAFC;
   border: 1px solid #E2E8F0;
   border-radius: 12px;
   border-bottom-left-radius: 4px;
   padding: 14px 18px;
+  padding-right: 48px;
   font-size: 14px;
   line-height: 1.7;
   color: #334155;
+}
+
+/* 复制按钮 */
+.copy-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: #94A3B8;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.copy-btn:hover {
+  background: #E2E8F0;
+  color: #475569;
+}
+
+/* 图片序号标签 */
+.image-index {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  z-index: 1;
+}
+.image-wrapper {
+  position: relative;
 }
 
 .confidence {
@@ -548,83 +570,6 @@ onMounted(async () => {
   gap: 8px;
   padding: 12px;
   border-top: 1px solid #E2E8F0;
-}
-
-/* 嵌入回答中的表格样式 */
-.tables-inline {
-  margin-top: 16px;
-  border-top: 1px solid #E2E8F0;
-  padding-top: 16px;
-}
-.embedded-table {
-  margin: 12px 0;
-  background: #F8FAFC;
-  border: 1px solid #E2E8F0;
-  border-radius: 8px;
-  padding: 12px;
-}
-.table-caption {
-  font-size: 13px;
-  font-weight: 600;
-  color: #475569;
-  margin-bottom: 8px;
-}
-.embedded-table :deep(table) {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 0;
-}
-.embedded-table :deep(th),
-.embedded-table :deep(td) {
-  border: 1px solid #E2E8F0;
-  padding: 8px 12px;
-  text-align: left;
-}
-.embedded-table :deep(th) {
-  background: #F1F5F9;
-  font-weight: 600;
-}
-
-/* 表格区域样式 */
-.tables-section { margin-top: 10px; }
-.tables-header {
-  display: flex; align-items: center; gap: 6px;
-  padding: 8px 12px;
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.15s;
-  border: 1px solid #E2E8F0;
-  border-radius: 8px;
-  background: #FAFBFC;
-}
-.tables-header:hover { background: #F1F5F9; }
-.tables-icon { font-size: 14px; }
-.tables-title { font-size: 12px; font-weight: 600; color: #475569; flex: 1; }
-.tables-toggle { font-size: 11px; color: #94A3B8; }
-.tables-content { margin-top: 8px; }
-.tables-content.collapsed { display: none; }
-.table-item {
-  margin-bottom: 10px;
-  padding: 10px;
-  background: white;
-  border-radius: 8px;
-  border: 1px solid #E2E8F0;
-}
-.media-title { font-size: 12px; font-weight: 600; color: #334155; margin-bottom: 6px; }
-.markdown-table :deep(table) {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 8px 0;
-}
-.markdown-table :deep(th),
-.markdown-table :deep(td) {
-  border: 1px solid #E2E8F0;
-  padding: 6px 10px;
-  text-align: left;
-}
-.markdown-table :deep(th) {
-  background: #F1F5F9;
-  font-weight: 600;
 }
 
 /* 图片区域样式 */

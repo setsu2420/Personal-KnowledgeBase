@@ -61,9 +61,9 @@
 
     <!-- 内容区 -->
     <div v-if="currentProjectId" class="tab-content" :key="currentProjectId">
-      <Home v-if="activeTab === 'home'" />
-      <SmartQA v-else-if="activeTab === 'qa'" />
-      <DeepResearch v-else-if="activeTab === 'research'" />
+      <keep-alive>
+        <component :is="activeTabComponent" />
+      </keep-alive>
     </div>
 
     <!-- 新建项目对话框 -->
@@ -122,6 +122,15 @@ const currentProjectName = computed(() => {
   return p ? p.name : '未知项目'
 })
 
+const activeTabComponent = computed(() => {
+  switch (activeTab.value) {
+    case 'home': return Home
+    case 'qa': return SmartQA
+    case 'research': return DeepResearch
+    default: return Home
+  }
+})
+
 function switchTab(key: string) {
   activeTab.value = key
 }
@@ -168,10 +177,14 @@ async function loadProjects() {
   try {
     const res = await getProjects()
     projects.value = res.data.items || res.data || []
-    
-    // Check if current project id is valid and present in the project list
-    const exists = projects.value.some(p => p.id === currentProjectId.value)
-    if (projects.value.length > 0 && (!currentProjectId.value || !exists)) {
+
+    // 尊重用户已选项目：若 localStorage 中的项目仍有效则保留，不再自动重置为第一个项目
+    const storedId = getCurrentProjectId()
+    const exists = projects.value.some(p => p.id === storedId)
+    if (storedId && exists) {
+      currentProjectId.value = storedId
+    } else if (projects.value.length > 0 && !currentProjectId.value) {
+      // 仅在未选择任何项目时，默认进入第一个项目
       currentProjectId.value = projects.value[0].id
       setCurrentProjectId(projects.value[0].id)
     }

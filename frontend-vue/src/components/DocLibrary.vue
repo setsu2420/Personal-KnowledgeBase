@@ -23,20 +23,43 @@
           </div>
           <div class="lib-row-body">
             <template v-if="lib.key === 'chart'">
-              <div v-if="docList[lib.key] && docList[lib.key].length > 0" class="doc-preview horizontal-scroll">
-                <div
-                  v-for="(doc, docIndex) in (docList[lib.key] || [])"
-                  :key="doc.id"
-                  class="doc-card chart-card"
-                  :style="{ animationDelay: (docIndex % 20) * 0.04 + 's' }"
-                  @click="$emit('docClick', doc)"
-                >
-                  <div class="doc-cover-wrapper chart-cover" style="border-bottom: none;">
-                    <img :src="getDocFileUrl(doc.id)" class="doc-cover-img" alt="Chart Preview" />
+              <template v-if="chartImageItems.length > 0 || chartTableItems.length > 0">
+                <!-- 图片行 -->
+                <div v-if="chartImageItems.length > 0" class="chart-section">
+                  <div class="chart-section-label">图片</div>
+                  <div class="doc-preview horizontal-scroll">
+                    <div
+                      v-for="(doc, docIndex) in chartImageItems"
+                      :key="doc.id"
+                      class="doc-card chart-card"
+                      :style="{ animationDelay: (docIndex % 20) * 0.04 + 's' }"
+                      @click="$emit('docClick', doc)"
+                    >
+                      <div class="doc-cover-wrapper chart-cover" style="border-bottom: none;">
+                        <img :src="getDocFileUrl(doc.id)" class="doc-cover-img" alt="Chart Preview" loading="lazy" />
+                      </div>
+                    </div>
                   </div>
-                  <div v-if="doc.tableMarkdown" class="table-preview-mini" v-html="renderTablePreview(doc.tableMarkdown)"></div>
                 </div>
-              </div>
+                <!-- 表格行 -->
+                <div v-if="chartTableItems.length > 0" class="chart-section">
+                  <div class="chart-section-label">表格</div>
+                  <div class="doc-preview horizontal-scroll">
+                    <div
+                      v-for="(doc, docIndex) in chartTableItems"
+                      :key="doc.id"
+                      class="doc-card chart-table-card"
+                      :style="{ animationDelay: (docIndex % 20) * 0.04 + 's' }"
+                      @click="$emit('docClick', doc)"
+                    >
+                      <div class="chart-table-header">
+                        <span class="chart-table-title">{{ doc.title }}</span>
+                      </div>
+                      <div class="table-preview-mini" v-html="renderTablePreview(doc.tableMarkdown)"></div>
+                    </div>
+                  </div>
+                </div>
+              </template>
               <div v-else class="doc-empty">暂无上传图表</div>
             </template>
             <template v-else>
@@ -69,12 +92,13 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Document } from '@element-plus/icons-vue'
 import { getDocFileUrl } from '../api'
 import { marked } from 'marked'
 import SkeletonLoader from './SkeletonLoader.vue'
 
-defineProps<{
+const props = defineProps<{
   docList: Record<string, any[]>
   loading: boolean
 }>()
@@ -83,6 +107,17 @@ defineEmits<{
   docClick: [doc: any]
   uploadClick: []
 }>()
+
+// 计算属性：将图表库拆分为图片和表格
+const chartImageItems = computed(() => {
+  const items = props.docList['chart'] || []
+  return items.filter(doc => !doc.tableMarkdown)
+})
+
+const chartTableItems = computed(() => {
+  const items = props.docList['chart'] || []
+  return items.filter(doc => !!doc.tableMarkdown)
+})
 
 marked.setOptions({
   breaks: true,
@@ -151,8 +186,8 @@ function renderTablePreview(markdown: string): string {
 .libraries-section {
   padding: 24px;
   background: white;
-  border-radius: 10px;
-  border: 1px solid #E2E8F0;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
   margin-bottom: 24px;
 }
 .libraries-header {
@@ -163,13 +198,13 @@ function renderTablePreview(markdown: string): string {
 }
 .libraries-title-wrap h2 {
   font-size: 20px;
-  color: #1E293B;
+  color: var(--color-text-primary);
   font-weight: 700;
   margin: 0 0 4px;
 }
 .libraries-subtitle {
   font-size: 12px;
-  color: #64748B;
+  color: var(--color-text-secondary);
 }
 .lib-list {
   display: flex;
@@ -177,15 +212,15 @@ function renderTablePreview(markdown: string): string {
   gap: 16px;
 }
 .lib-row {
-  border: 1px solid #E2E8F0;
-  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
 }
 .lib-row-header {
-  background: linear-gradient(180deg, #F8FAFC, #EFF6FF);
+  background: linear-gradient(180deg, var(--color-bg-secondary), var(--color-primary-light));
   padding: 12px 18px;
-  border-bottom: 1px solid #E2E8F0;
+  border-bottom: 1px solid var(--color-border);
 }
 .lib-row-name {
   font-size: 14px;
@@ -204,10 +239,10 @@ function renderTablePreview(markdown: string): string {
 }
 .doc-card {
   background: white;
-  border-radius: 8px;
-  border: 1px solid #E2E8F0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   height: 240px;
@@ -217,23 +252,24 @@ function renderTablePreview(markdown: string): string {
 }
 .doc-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--shadow-md);
 }
 .doc-cover-wrapper {
   flex: 1;
-  background: #F8FAFC;
+  background: var(--color-bg-secondary);
   display: flex;
   justify-content: center;
   align-items: center;
   overflow: hidden;
-  border-bottom: 1px solid #E2E8F0;
+  border-bottom: 1px solid var(--color-border);
   height: 170px;
 }
 .doc-cover-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  object-position: top;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: center;
 }
 .doc-preview.horizontal-scroll {
   display: flex;
@@ -274,19 +310,19 @@ function renderTablePreview(markdown: string): string {
   padding: 10px 16px;
   background: white;
   border-radius: 6px;
-  border: 1px solid #E2E8F0;
-  transition: all 0.2s ease;
+  border: 1px solid var(--color-border);
+  transition: var(--transition-base);
   cursor: pointer;
   animation: docSlideUpFade 0.35s ease-out both;
 }
 .doc-list-item:hover {
-  background: #EFF6FF;
+  background: var(--color-primary-light);
   border-color: #BFDBFE;
   transform: translateX(2px);
 }
 .doc-file-icon {
   font-size: 16px;
-  color: #64748B;
+  color: var(--color-text-secondary);
 }
 .doc-title-link {
   flex: 1;
@@ -306,35 +342,41 @@ function renderTablePreview(markdown: string): string {
 }
 .doc-time-label {
   font-size: 11px;
-  color: #94A3B8;
+  color: var(--color-text-tertiary);
 }
 .doc-empty {
   font-size: 13px;
-  color: #94A3B8;
+  color: var(--color-text-tertiary);
   text-align: center;
   padding: 8px 0;
 }
 .table-preview-mini {
-  font-size: 11px;
-  max-height: 150px;
+  flex: 1;
+  font-size: 12px;
+  max-height: 180px;
   overflow: auto;
-  border-top: 1px solid #E2E8F0;
-  padding: 6px;
+  padding: 10px 12px;
+  background: white;
 }
 .table-preview-mini :deep(table) {
   width: 100%;
   border-collapse: collapse;
-  font-size: 10px;
+  font-size: 11px;
+  border: 1px solid var(--color-border);
 }
 .table-preview-mini :deep(th),
 .table-preview-mini :deep(td) {
-  border: 1px solid #E2E8F0;
-  padding: 2px 4px;
+  border: 1px solid var(--color-border);
+  padding: 4px 6px;
   text-align: left;
 }
 .table-preview-mini :deep(th) {
-  background: #F1F5F9;
-  font-weight: bold;
+  background: var(--color-primary-light);
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.table-preview-mini :deep(tr:nth-child(even)) {
+  background: var(--color-bg-secondary);
 }
 
 @keyframes docSlideUpFade {
@@ -346,5 +388,43 @@ function renderTablePreview(markdown: string): string {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+.chart-section {
+  margin-bottom: 16px;
+}
+.chart-section:last-child {
+  margin-bottom: 0;
+}
+.chart-section-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: 8px;
+  padding-left: 2px;
+}
+.chart-table-card {
+  flex-shrink: 0;
+  width: 320px;
+  height: auto;
+  min-height: 120px;
+  max-height: 260px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+.chart-table-header {
+  padding: 10px 12px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+.chart-table-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

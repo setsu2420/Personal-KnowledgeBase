@@ -252,11 +252,13 @@ async function loadChartTableMarkdown() {
   const chartDocs = docList.value['chart']
   if (!chartDocs || chartDocs.length === 0) return
   try {
-    const res = await getKnowledgeEntries({ page: 1, pageSize: 500 })
+    const res = await getKnowledgeEntries({ library: 'chart', includeImage: true, page: 1, pageSize: 500 })
     const allEntries = res.data?.items || []
     for (const doc of chartDocs) {
-      const entry = allEntries.find((e: any) => e.documentId === doc.id)
-      if (entry && entry.tableMarkdown) {
+      const entry = allEntries.find(
+        (e: any) => e.documentId === doc.id && e.mediaType === 'table' && e.tableMarkdown
+      )
+      if (entry) {
         doc.tableMarkdown = entry.tableMarkdown
       }
     }

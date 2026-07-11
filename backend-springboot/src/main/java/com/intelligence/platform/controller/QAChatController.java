@@ -14,6 +14,7 @@ import com.intelligence.platform.service.VectorSearchService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -54,6 +55,23 @@ public class QAChatController {
     @Autowired
     private ProjectContext projectContext;
 
+    @PreDestroy
+    public void shutdown() {
+        log.info("Shutting down QA stream executor...");
+        streamExecutor.shutdown();
+        try {
+            if (!streamExecutor.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                log.warn("QA stream executor did not terminate gracefully, forcing shutdown");
+                streamExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            log.warn("Interrupted while waiting for QA stream executor to shutdown");
+            streamExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+        log.info("QA stream executor shut down");
+    }
+
     /**
      * 智能问答（Graph-RAG风格 + 多模态结构化返回）
      * 1. 分类检索文本/表格/图片
@@ -93,11 +111,14 @@ public class QAChatController {
             List<Map<String, Object>> tableResults = tableTopK > 0
                     ? searchTables(question, tableTopK, tableThreshold) : List.of();
 
+            // 去重：移除与表格重复的图片（同一ID不应同时出现在图片和表格中）
+            imageResults = deduplicateImages(imageResults, tableResults);
+
             log.info("图片搜索结果: {} 个", imageResults.size());
             log.info("表格搜索结果: {} 个", tableResults.size());
 
-            // 2. 构建系统提示词（指导LLM按 文字→表格→图片 顺序回答）
-            // 使用编号引用 [1] [2] 格式，参考 llm_wiki 的引用方式
+            // 2. 构建系统提示词（表格直接嵌入回答中，不再单独展示）
+            String tableContext = buildTableContext(tableResults);
             String systemPrompt = """
                     你是一个专业的智能情报分析助手。请基于以下知识库内容回答用户的问题。
 
@@ -109,8 +130,9 @@ public class QAChatController {
 
                     回答格式要求：
                     1. 首先用文字回答核心问题，引用相关数据
-                    2. 如果有相关表格数据，用markdown表格格式呈现
-                    3. 如果有相关图表或图片，在文字中说明"参见相关图表"
+                    2. 如果有相关表格数据，必须直接用 Markdown 表格格式嵌入到回答正文中，不要省略
+                    3. 表格必须按顺序编号，格式为 **表01**、**表02**...，放在表格上方作为标题
+                    4. 如果有相关图表或图片，在文字中说明"参见相关图表"
 
                     其他规则：
                     1. 优先使用知识库中的信息回答
@@ -119,7 +141,7 @@ public class QAChatController {
                     4. 使用中文回答
 
                     知识库内容：
-                    """ + context;
+                    """ + context + tableContext;
 
             // 3. 调用LLM
             String answer = llmService.chatWithActive(systemPrompt, question);
@@ -225,8 +247,10 @@ public class QAChatController {
                         ? searchImages(question, imageTopK, imageThreshold) : List.of();
                 List<Map<String, Object>> tableResults = tableTopK > 0
                         ? searchTables(question, tableTopK, tableThreshold) : List.of();
+                imageResults = deduplicateImages(imageResults, tableResults);
 
                 // 2. 发送 meta 事件（来源、表格、图片信息）
+                String tableContext = buildTableContext(tableResults);
                 String systemPrompt = """
                         你是一个专业的智能情报分析助手。请基于以下知识库内容回答用户的问题。
 
@@ -238,12 +262,13 @@ public class QAChatController {
 
                         回答格式要求：
                         1. 先进行文字分析，引用相关文献
-                        2. 如果知识库中有相关表格数据，使用 Markdown 表格展示
-                        3. 如果知识库中有相关图片，在回答末尾用 ![描述](media-id:xxx) 引用
-                        4. 如果知识库中没有相关信息，请诚实说明
+                        2. 如果有相关表格数据，必须直接用 Markdown 表格格式嵌入到回答正文中，不要省略
+                        3. 表格必须按顺序编号，格式为 **表01**、**表02**...，放在表格上方作为标题
+                        4. 如果知识库中有相关图片，在回答末尾用 ![描述](media-id:xxx) 引用
+                        5. 如果知识库中没有相关信息，请诚实说明
 
                         知识库上下文：
-                        """ + context;
+                        """ + context + tableContext;
 
                 // 构建丰富的来源列表（与非流式接口格式一致）
                 List<Map<String, Object>> sources = buildSourceList(relevantEntries);
@@ -335,13 +360,29 @@ public class QAChatController {
     }
 
     /**
-     * 检索相关图片（Top-K + 阈值混合策略）
+     * 去重：移除与表格结果ID重复的图片，确保每个图表只出现一次
+     */
+    private List<Map<String, Object>> deduplicateImages(
+            List<Map<String, Object>> imageResults, List<Map<String, Object>> tableResults) {
+        if (imageResults.isEmpty() || tableResults.isEmpty()) return imageResults;
+        Set<Object> tableIds = tableResults.stream()
+                .map(t -> t.get("id"))
+                .collect(Collectors.toSet());
+        return imageResults.stream()
+                .filter(img -> !tableIds.contains(img.get("id")))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 检索相关图片（Top-K + 阈值混合策略，按分数降序，优先返回高分图片）
      */
     private List<Map<String, Object>> searchImages(String question, int topK, float threshold) {
         try {
             List<VectorIndex.SearchResult> results = vectorSearchService.searchWithFilter(
                     question, topK, threshold, "image");
             return results.stream()
+                    .sorted((a, b) -> Float.compare(b.score(), a.score()))
+                    .limit(topK)
                     .map(r -> {
                         Map<String, Object> img = new LinkedHashMap<>();
                         img.put("id", r.id());
@@ -361,13 +402,15 @@ public class QAChatController {
     }
 
     /**
-     * 检索相关表格
+     * 检索相关表格（按分数降序，优先返回高分表格）
      */
     private List<Map<String, Object>> searchTables(String question, int topK, float threshold) {
         try {
             List<VectorIndex.SearchResult> results = vectorSearchService.searchWithFilter(
                     question, topK, threshold, "table");
             return results.stream()
+                    .sorted((a, b) -> Float.compare(b.score(), a.score()))
+                    .limit(topK)
                     .map(r -> {
                         Map<String, Object> table = new LinkedHashMap<>();
                         table.put("id", r.id());
@@ -487,7 +530,29 @@ public class QAChatController {
     }
 
     /**
-     * 获取会话历史
+     * 将表格搜索结果构建为上下文文本，供 LLM 嵌入回答中
+     */
+    private String buildTableContext(List<Map<String, Object>> tableResults) {
+        if (tableResults == null || tableResults.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n--- 相关表格数据（请直接用 Markdown 表格格式嵌入回答中）---\n");
+        for (Map<String, Object> tbl : tableResults) {
+            String title = (String) tbl.getOrDefault("title", "");
+            String markdown = (String) tbl.getOrDefault("table_markdown", "");
+            if (!markdown.isEmpty()) {
+                if (!title.isEmpty()) {
+                    sb.append("【").append(title).append("】\n");
+                }
+                sb.append(markdown).append("\n\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 获取会话历史（按最近消息时间倒序排列）
      */
     @GetMapping("/sessions")
     public List<Map<String, Object>> listSessions() {
@@ -506,8 +571,16 @@ public class QAChatController {
                     session.put("session_id", e.getKey());
                     session.put("title", e.getValue().get(0).getQuestion());
                     session.put("first_msg", e.getValue().get(0).getCreatedAt());
+                    // 最后一条消息时间，用于排序
+                    session.put("last_msg", e.getValue().get(e.getValue().size() - 1).getCreatedAt());
                     session.put("msg_count", e.getValue().size());
                     return session;
+                })
+                // 按最近消息时间倒序排列（最新的在最前面）
+                .sorted((a, b) -> {
+                    String timeA = (String) a.get("last_msg");
+                    String timeB = (String) b.get("last_msg");
+                    return timeB.compareTo(timeA);
                 })
                 .collect(Collectors.toList());
     }

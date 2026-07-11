@@ -36,7 +36,7 @@
           <div class="data-section">
             <el-tabs v-model="dataTab" type="card" size="small">
               <el-tab-pane label="节点列表" name="nodes">
-                <el-table :data="filteredNodes" stripe size="small" max-height="250">
+                <el-table :data="paginatedNodes" stripe size="small" max-height="250">
                   <el-table-column prop="id" label="ID" width="60" />
                   <el-table-column prop="label" label="标签" />
                   <el-table-column prop="nodeType" label="类型" width="80">
@@ -59,17 +59,35 @@
                   <el-table-column prop="communityId" label="社区" width="60" />
                   <el-table-column prop="description" label="描述" show-overflow-tooltip />
                 </el-table>
+                <div class="table-pagination" v-if="filteredNodes.length > nodePageSize">
+                  <el-pagination
+                    v-model:current-page="nodePage"
+                    :page-size="nodePageSize"
+                    :total="filteredNodes.length"
+                    layout="prev, pager, next"
+                    size="small"
+                  />
+                </div>
               </el-tab-pane>
               <el-tab-pane label="关系列表" name="edges">
-                <el-table :data="graphData.edges || []" stripe size="small" max-height="250">
+                <el-table :data="paginatedEdges" stripe size="small" max-height="250">
                   <el-table-column prop="sourceId" label="源节点" width="80" />
                   <el-table-column prop="targetId" label="目标节点" width="80" />
                   <el-table-column prop="edgeType" label="关系类型" />
                   <el-table-column prop="weight" label="权重" width="80" />
                 </el-table>
+                <div class="table-pagination" v-if="(graphData.edges || []).length > edgePageSize">
+                  <el-pagination
+                    v-model:current-page="edgePage"
+                    :page-size="edgePageSize"
+                    :total="(graphData.edges || []).length"
+                    layout="prev, pager, next"
+                    size="small"
+                  />
+                </div>
               </el-tab-pane>
               <el-tab-pane label="社区分析" name="communities">
-                <el-table :data="graphData.communities || []" stripe size="small" max-height="250">
+                <el-table :data="paginatedCommunities" stripe size="small" max-height="250">
                   <el-table-column prop="id" label="社区ID" width="80">
                     <template #default="{ row }">
                       <span class="comm-dot-sm" :style="{ backgroundColor: communityColors[row.id % communityColors.length] }" />
@@ -96,6 +114,15 @@
                     </template>
                   </el-table-column>
                 </el-table>
+                <div class="table-pagination" v-if="(graphData.communities || []).length > commPageSize">
+                  <el-pagination
+                    v-model:current-page="commPage"
+                    :page-size="commPageSize"
+                    :total="(graphData.communities || []).length"
+                    layout="prev, pager, next"
+                    size="small"
+                  />
+                </div>
               </el-tab-pane>
             </el-tabs>
           </div>
@@ -158,7 +185,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { GraphChart } from 'echarts/charts'
@@ -177,6 +204,14 @@ const colorMode = ref<'type' | 'community'>('community')
 const dataTab = ref('nodes')
 const searchQuery = ref('')
 const typeFilter = ref('')
+
+// 表格分页
+const nodePage = ref(1)
+const nodePageSize = ref(20)
+const edgePage = ref(1)
+const edgePageSize = ref(50)
+const commPage = ref(1)
+const commPageSize = ref(50)
 
 const typeColors: Record<string, string> = {
   entity: '#60a5fa', concept: '#c084fc', source: '#fb923c',
@@ -230,6 +265,29 @@ const filteredNodes = computed(() => {
     result = result.filter((n: any) => n.nodeType === typeFilter.value)
   }
   return result
+})
+
+const paginatedNodes = computed(() => {
+  const nodes = filteredNodes.value || []
+  const start = (nodePage.value - 1) * nodePageSize.value
+  return nodes.slice(start, start + nodePageSize.value)
+})
+
+const paginatedEdges = computed(() => {
+  const edges = graphData.value.edges || []
+  const start = (edgePage.value - 1) * edgePageSize.value
+  return edges.slice(start, start + edgePageSize.value)
+})
+
+const paginatedCommunities = computed(() => {
+  const comms = graphData.value.communities || []
+  const start = (commPage.value - 1) * commPageSize.value
+  return comms.slice(start, start + commPageSize.value)
+})
+
+// 搜索/筛选变化时重置节点分页
+watch([searchQuery, typeFilter], () => {
+  nodePage.value = 1
 })
 
 const chartOption = computed(() => {
@@ -350,6 +408,12 @@ onMounted(async () => {
 .graph-area { min-height: 500px; }
 
 .data-section { padding: 0 16px 16px; border-top: 1px solid #E2E8F0; }
+
+.table-pagination {
+  display: flex;
+  justify-content: center;
+  padding-top: 8px;
+}
 
 .panel-card {
   background: white;

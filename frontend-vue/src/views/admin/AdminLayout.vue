@@ -153,6 +153,16 @@ async function loadProjects() {
   try {
     const res = await getProjects()
     projects.value = res.data.items || []
+
+    // 后台上传/操作依赖项目隔离，若未选择项目则默认选择第一个，避免数据归属为空
+    const storedId = getCurrentProjectId()
+    const exists = projects.value.some(p => p.id === storedId)
+    if (storedId && exists) {
+      currentProjectId.value = storedId
+    } else if (projects.value.length > 0) {
+      currentProjectId.value = projects.value[0].id
+      setCurrentProjectId(projects.value[0].id)
+    }
   } catch (e) {
     console.error('加载项目列表失败:', e)
   }

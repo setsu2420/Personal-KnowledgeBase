@@ -3,8 +3,13 @@
     <el-row :gutter="20" class="stats-row">
       <el-col :span="4" v-for="item in statCards" :key="item.label">
         <el-card shadow="hover" class="stat-card">
-          <div class="stat-number">{{ item.value }}</div>
-          <div class="stat-label">{{ item.label }}</div>
+          <div class="stat-icon" :style="{ backgroundColor: item.color + '1A', color: item.color }">
+            <el-icon><component :is="item.icon" /></el-icon>
+          </div>
+          <div class="stat-info">
+            <div class="stat-value">{{ item.value }}</div>
+            <div class="stat-label">{{ item.label }}</div>
+          </div>
         </el-card>
       </el-col>
     </el-row>
@@ -58,12 +63,12 @@ onMounted(async () => {
     latestDocs.value = d.data
     activeProjects.value = p.data
     statCards.value = [
-      { label: '资料', value: s.data.doc_count || 0 },
-      { label: '报告', value: s.data.report_count || 0 },
-      { label: '问答', value: s.data.qa_count || 0 },
-      { label: '项目', value: s.data.active_projects || 0 },
-      { label: '组织', value: s.data.organization_count || 0 },
-      { label: '知识节点', value: s.data.kg_node_count || 0 },
+      { label: '资料', value: s.data.doc_count || 0, icon: 'Document', color: '#3b82f6' },
+      { label: '报告', value: s.data.report_count || 0, icon: 'Reading', color: '#8b5cf6' },
+      { label: '问答', value: s.data.qa_count || 0, icon: 'ChatDotRound', color: '#ef4444' },
+      { label: '项目', value: s.data.active_projects || 0, icon: 'Bell', color: '#10b981' },
+      { label: '组织', value: s.data.organization_count || 0, icon: 'Picture', color: '#f59e0b' },
+      { label: '知识节点', value: s.data.kg_node_count || 0, icon: 'Search', color: '#6366f1' },
     ]
   } catch (e) { console.error(e) }
 })
@@ -72,7 +77,35 @@ onMounted(async () => {
 <style scoped>
 .dashboard-page { padding: 0; }
 .stats-row { margin-bottom: 20px; }
-.stat-card { text-align: center; }
-.stat-number { font-size: 28px; font-weight: bold; color: #409eff; }
-.stat-label { font-size: 13px; color: #909399; margin-top: 4px; }
+.stat-card {
+  display: flex;
+  align-items: center;
+  padding: 16px;
+}
+.stat-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 14px;
+  font-size: 24px;
+  flex-shrink: 0;
+}
+.stat-info {
+  flex: 1;
+  min-width: 0;
+}
+.stat-value {
+  font-size: 24px;
+  font-weight: bold;
+  color: #303133;
+  line-height: 1.2;
+}
+.stat-label {
+  font-size: 13px;
+  color: #909399;
+  margin-top: 4px;
+}
 </style>

@@ -14,8 +14,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 知识词条管理（前台"研究报告"Tab核心数据源）
@@ -39,6 +43,12 @@ public class KnowledgeEntryController {
     @Autowired
     private KGController kgController;
 
+    @Autowired
+    private com.intelligence.platform.mapper.ProjectMapper projectMapper;
+
+    @Autowired
+    private com.intelligence.platform.mapper.DocumentMapper documentMapper;
+
     /**
      * 分页查询词条
      * 前台"研究报告"Tab调用
@@ -49,6 +59,7 @@ public class KnowledgeEntryController {
             @RequestParam(required = false) String entryType,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false, defaultValue = "false") boolean includeImage,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
 
@@ -63,6 +74,10 @@ public class KnowledgeEntryController {
             wrapper.and(w -> w.like(KnowledgeEntry::getTitle, keyword)
                     .or().like(KnowledgeEntry::getContent, keyword)
                     .or().like(KnowledgeEntry::getKeywords, keyword));
+        }
+        // 默认排除图片和表格类型的词条（图表库内容在图表管理页单独展示）
+        if (!includeImage) {
+            wrapper.notIn(KnowledgeEntry::getEntryType, "image", "table");
         }
         wrapper.orderByDesc(KnowledgeEntry::getCreatedAt);
 
@@ -225,9 +240,17 @@ public class KnowledgeEntryController {
     @PutMapping("/{id}")
     public Map<String, Object> update(@PathVariable Long id, @RequestBody KnowledgeEntry entry) {
         entry.setId(id);
+        // 读取旧值用于对比关联变化
+        KnowledgeEntry oldEntry = knowledgeEntryMapper.selectById(id);
+        String oldRelated = oldEntry != null ? oldEntry.getRelated() : null;
+        
         // 更新时验证关联词条真实性
         validateRelatedEntry(entry);
         knowledgeEntryMapper.updateById(entry);
+        
+        // 同步反向关联
+        syncBidirectionalRelations(entry, oldRelated);
+        
         syncKG();
         return Map.of("message", "更新成功");
     }
@@ -324,6 +347,143 @@ public class KnowledgeEntryController {
         );
     }
 
+    /**
+     * 修复所有已有词条的双向关联关系
+     * 确保 A.related 包含 B 时，B.related 也包含 A
+     */
+    @PostMapping("/repair-bidirectional")
+    public Map<String, Object> repairBidirectional() {
+        Long pid = projectContext.getCurrentProjectId();
+        LambdaQueryWrapper<KnowledgeEntry> wrapper = new LambdaQueryWrapper<>();
+        if (pid != null) wrapper.eq(KnowledgeEntry::getProjectId, pid);
+        List<KnowledgeEntry> allEntries = knowledgeEntryMapper.selectList(wrapper);
+
+        // title -> Set<relatedTitle>
+        Map<String, Set<String>> existingMap = new HashMap<>();
+        Map<Long, String> idToTitle = new HashMap<>();
+        
+        for (KnowledgeEntry e : allEntries) {
+            if (e.getTitle() != null && !e.getTitle().isEmpty()) {
+                idToTitle.put(e.getId(), e.getTitle());
+                existingMap.put(e.getTitle(), parseRelatedSet(e.getRelated()));
+            }
+        }
+
+        // 计算需要添加的反向关联 (targetTitle -> Set<sourceTitles>)
+        Map<String, Set<String>> toAdd = new HashMap<>();
+        
+        for (KnowledgeEntry entry : allEntries) {
+            if (entry.getRelated() == null || entry.getRelated().isEmpty()) continue;
+            if (entry.getTitle() == null || entry.getTitle().isEmpty()) continue;
+            
+            Set<String> myRelated = parseRelatedSet(entry.getRelated());
+            for (String relTitle : myRelated) {
+                Set<String> targetRelated = existingMap.get(relTitle);
+                if (targetRelated == null) continue; // 目标词条不存在
+                if (!targetRelated.contains(entry.getTitle())) {
+                    toAdd.computeIfAbsent(relTitle, k -> new HashSet<>())
+                         .add(entry.getTitle());
+                }
+            }
+        }
+
+        // 批量更新
+        int totalFixed = 0;
+        for (Map.Entry<String, Set<String>> e : toAdd.entrySet()) {
+            String targetTitle = e.getKey();
+            Set<String> titlesToAdd = e.getValue();
+            
+            Set<String> current = existingMap.get(targetTitle);
+            current.addAll(titlesToAdd);
+            
+            LambdaQueryWrapper<KnowledgeEntry> updateWrapper = new LambdaQueryWrapper<>();
+            updateWrapper.eq(KnowledgeEntry::getTitle, targetTitle);
+            if (pid != null) updateWrapper.eq(KnowledgeEntry::getProjectId, pid);
+            
+            KnowledgeEntry update = new KnowledgeEntry();
+            update.setRelated(String.join(",", current));
+            knowledgeEntryMapper.update(update, updateWrapper);
+            totalFixed += titlesToAdd.size();
+            
+            log.info("双向修复: 为 '{}' 补充关联 → {}", targetTitle, String.join(", ", titlesToAdd));
+        }
+
+        return Map.of(
+            "message", "双向关联修复完成",
+            "total_checked", allEntries.size(),
+            "total_fixed", totalFixed
+        );
+    }
+
+    /**
+     * 修复历史数据的 project_id（数据迁移：回填 NULL project_id）
+     * 通过 document_id 关联 documents 表回填 project_id
+     * 无法通过 document 回溯的孤立记录：若系统仅有单个项目则兜底归入，否则保留 NULL
+     */
+    @PostMapping("/repair-project-id")
+    public Map<String, Object> repairProjectId() {
+        // 1. 查询 project_id IS NULL 的全部 knowledge_entries
+        LambdaQueryWrapper<KnowledgeEntry> wrapper = new LambdaQueryWrapper<>();
+        wrapper.isNull(KnowledgeEntry::getProjectId);
+        List<KnowledgeEntry> orphanEntries = knowledgeEntryMapper.selectList(wrapper);
+
+        int totalScanned = orphanEntries.size();
+        int totalRepaired = 0;
+        int totalOrphan = 0;
+
+        // 2. 查询系统所有项目，判断是否仅有单个项目用于兜底
+        List<com.intelligence.platform.entity.Project> allProjects = projectMapper.selectList(null);
+        Long fallbackProjectId = null;
+        if (allProjects.size() == 1) {
+            fallbackProjectId = allProjects.get(0).getId();
+        }
+
+        // 3. 逐条回填
+        for (KnowledgeEntry entry : orphanEntries) {
+            Long targetProjectId = null;
+            // 优先通过 document_id 关联回溯
+            if (entry.getDocumentId() != null) {
+                com.intelligence.platform.entity.Document doc = documentMapper.selectById(entry.getDocumentId());
+                if (doc != null && doc.getProjectId() != null) {
+                    targetProjectId = doc.getProjectId();
+                }
+            }
+            // document 回溯失败且系统仅单个项目时兜底
+            if (targetProjectId == null) {
+                targetProjectId = fallbackProjectId;
+            }
+            if (targetProjectId != null) {
+                entry.setProjectId(targetProjectId);
+                knowledgeEntryMapper.updateById(entry);
+                totalRepaired++;
+                log.info("Repair project_id: entry '{}' (id={}) -> projectId={}",
+                        entry.getTitle(), entry.getId(), targetProjectId);
+
+                // 同步回填关联 document 的 project_id（如果 document 本身也为 NULL）
+                if (entry.getDocumentId() != null) {
+                    com.intelligence.platform.entity.Document doc = documentMapper.selectById(entry.getDocumentId());
+                    if (doc != null && doc.getProjectId() == null) {
+                        doc.setProjectId(targetProjectId);
+                        documentMapper.updateById(doc);
+                        log.info("Repair project_id: document '{}' (id={}) -> projectId={}",
+                                doc.getTitle(), doc.getId(), targetProjectId);
+                    }
+                }
+            } else {
+                totalOrphan++;
+                log.warn("Repair project_id: entry '{}' (id={}) 无法确定归属项目，保留 NULL",
+                        entry.getTitle(), entry.getId());
+            }
+        }
+
+        return Map.of(
+            "message", "project_id 修复完成",
+            "total_scanned", totalScanned,
+            "total_repaired", totalRepaired,
+            "total_orphan", totalOrphan
+        );
+    }
+
     private void syncKG() {
         try {
             kgController.buildGraph();
@@ -365,5 +525,65 @@ public class KnowledgeEntryController {
         for (KnowledgeEntry entry : entries) {
             validateRelatedEntry(entry);
         }
+    }
+
+    /**
+     * 同步反向关联：确保关联关系双向存储。
+     * 当 A 关联 B 时，B 的 related 字段也必须包含 A。
+     */
+    private void syncBidirectionalRelations(KnowledgeEntry entry, String oldRelated) {
+        String newRelated = entry.getRelated();
+        
+        // 解析新旧关联词条标题集合
+        Set<String> oldSet = parseRelatedSet(oldRelated);
+        Set<String> newSet = parseRelatedSet(newRelated);
+        
+        // 新增的关联：需要反向添加到目标词条
+        Set<String> added = new HashSet<>(newSet);
+        added.removeAll(oldSet);
+        
+        // 移除的关联：需要从目标词条中反向删除
+        Set<String> removed = new HashSet<>(oldSet);
+        removed.removeAll(newSet);
+        
+        Long pid = entry.getProjectId();
+        
+        // 处理新增的关联
+        for (String title : added) {
+            KnowledgeEntry target = findEntryByTitle(title, pid);
+            if (target != null) {
+                Set<String> targetRelated = parseRelatedSet(target.getRelated());
+                if (!targetRelated.contains(entry.getTitle())) {
+                    targetRelated.add(entry.getTitle());
+                    target.setRelated(String.join(",", targetRelated));
+                    knowledgeEntryMapper.updateById(target);
+                }
+            }
+        }
+        
+        // 处理移除的关联
+        for (String title : removed) {
+            KnowledgeEntry target = findEntryByTitle(title, pid);
+            if (target != null) {
+                Set<String> targetRelated = parseRelatedSet(target.getRelated());
+                if (targetRelated.contains(entry.getTitle())) {
+                    targetRelated.remove(entry.getTitle());
+                    target.setRelated(targetRelated.isEmpty() ? null : String.join(",", targetRelated));
+                    knowledgeEntryMapper.updateById(target);
+                }
+            }
+        }
+    }
+
+    private Set<String> parseRelatedSet(String related) {
+        if (related == null || related.trim().isEmpty()) return new HashSet<>();
+        return new HashSet<>(Arrays.asList(related.split("\\s*,\\s*")));
+    }
+
+    private KnowledgeEntry findEntryByTitle(String title, Long projectId) {
+        LambdaQueryWrapper<KnowledgeEntry> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(KnowledgeEntry::getTitle, title);
+        if (projectId != null) wrapper.eq(KnowledgeEntry::getProjectId, projectId);
+        return knowledgeEntryMapper.selectOne(wrapper);
     }
 }

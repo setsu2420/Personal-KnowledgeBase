@@ -36,28 +36,12 @@
           :style="{ animationDelay: (index % 20) * 0.04 + 's' }"
           @click="$emit('entryClick', item)"
         >
-          <!-- 1. 图片类型：显示小图标 + 名称 + 类型标签 -->
-          <template v-if="item.entryType === 'image'">
-            <el-icon class="wiki-type-icon" :style="{ color: getTypeColor(item.entryType) }"><Picture /></el-icon>
-            <span class="wiki-list-title" :title="item.title">{{ item.title }}</span>
-            <span class="wiki-type-badge" :style="{ color: getTypeColor(item.entryType), backgroundColor: getTypeColor(item.entryType) + '18' }">图片</span>
-          </template>
-
-          <!-- 2. 表格类型：显示小图标 + 名称 + 类型标签 -->
-          <template v-else-if="item.entryType === 'table'">
-            <el-icon class="wiki-type-icon" :style="{ color: getTypeColor(item.entryType) }"><Grid /></el-icon>
-            <span class="wiki-list-title" :title="item.title">{{ item.title }}</span>
-            <span class="wiki-type-badge" :style="{ color: getTypeColor(item.entryType), backgroundColor: getTypeColor(item.entryType) + '18' }">表格</span>
-          </template>
-
-          <!-- 3. 其他类型：显示类型图标 + 名称 + 类型标签 -->
-          <template v-else>
-            <el-icon class="wiki-type-icon" :style="{ color: getTypeColor(item.entryType) }">
-              <component :is="getTypeIcon(item.entryType)" />
-            </el-icon>
-            <span class="wiki-list-title" :title="item.title">{{ item.title }}</span>
-            <span class="wiki-type-badge" :style="{ color: getTypeColor(item.entryType), backgroundColor: getTypeColor(item.entryType) + '18' }">{{ getTypeBadgeLabel(item.entryType) }}</span>
-          </template>
+          <!-- 统一显示类型图标 + 名称 + 类型标签，表格不再展开预览 -->
+          <el-icon class="wiki-type-icon" :style="{ color: getTypeColor(item.entryType) }">
+            <component :is="getTypeIcon(item.entryType)" />
+          </el-icon>
+          <span class="wiki-list-title" :title="item.title">{{ item.title }}</span>
+          <span class="wiki-type-badge" :style="{ color: getTypeColor(item.entryType), backgroundColor: getTypeColor(item.entryType) + '18' }">{{ getTypeBadgeLabel(item.entryType) }}</span>
         </div>
       </template>
     </div>
@@ -81,6 +65,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { Search, Picture, Grid } from '@element-plus/icons-vue'
+import { marked } from 'marked'
 import SkeletonLoader from './SkeletonLoader.vue'
 
 interface KnowledgeEntry {
@@ -127,8 +112,6 @@ const typeColors: Record<string, string> = {
   finding: '#f87171',
   comparison: '#ec4899',
   synthesis: '#6366f1',
-  table: '#fbbf24',
-  image: '#f43f5e',
 }
 
 function getTypeColor(type: string): string {
@@ -136,7 +119,18 @@ function getTypeColor(type: string): string {
 }
 
 function getTypeIcon(type: string): string {
-  return 'Document'
+  const iconMap: Record<string, string> = {
+    concept: 'Document',
+    entity: 'OfficeBuilding',
+    thesis: 'ChatDotRound',
+    methodology: 'TrendCharts',
+    finding: 'DataAnalysis',
+    comparison: 'ScaleToOriginal',
+    synthesis: 'Link',
+    source: 'Collection',
+    query: 'QuestionFilled',
+  }
+  return iconMap[type] || 'Document'
 }
 
 function getTypeBadgeLabel(type: string): string {
@@ -148,14 +142,12 @@ function getTypeBadgeLabel(type: string): string {
     finding: '发现',
     comparison: '对比',
     synthesis: '综合',
-    table: '表格',
-    image: '图片',
   }
   return labelMap[type] || '词条'
 }
 
 const filteredEntries = computed(() => {
-  return props.entries.filter(item => {
+  let result = props.entries.filter(item => {
     if (searchQuery.value) {
       const q = searchQuery.value.toLowerCase()
       const title = (item.title || '').toLowerCase()
@@ -170,7 +162,18 @@ const filteredEntries = computed(() => {
     }
     return true
   })
+  // 排除图片和表格类型的词条（图表库内容在图表管理页单独展示）
+  result = result.filter((item: KnowledgeEntry) => item.entryType !== 'image' && item.entryType !== 'table')
+  return result
 })
+
+function renderMiniTable(markdown: string): string {
+  if (!markdown) return ''
+  // 截取前 5 行（1 表头 + 1 分隔符 + 3 数据行）
+  const lines = markdown.split('\n')
+  const preview = lines.slice(0, 5).join('\n')
+  return marked.parse(preview) as string
+}
 
 const paginatedEntries = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value
@@ -195,9 +198,9 @@ onUnmounted(() => {
 <style scoped>
 .wiki-entries-section {
   padding: 24px;
-  background: #F8FAFC;
-  border-radius: 10px;
-  border: 1px solid #E2E8F0;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
   margin-bottom: 24px;
 }
 .wiki-section-header {
@@ -205,19 +208,19 @@ onUnmounted(() => {
 }
 .wiki-section-header h2 {
   font-size: 20px;
-  color: #1E293B;
+  color: var(--color-text-primary);
   font-weight: 700;
   margin: 0 0 4px;
 }
 .wiki-subtitle {
   font-size: 12px;
-  color: #64748B;
+  color: var(--color-text-secondary);
 }
 .filter-toolbar {
   background: white;
   padding: 12px;
-  border-radius: 8px;
-  border: 1px solid #E2E8F0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
   margin-bottom: 20px;
   display: flex;
   align-items: center;
@@ -241,16 +244,16 @@ onUnmounted(() => {
   animation: wikiSlideUpFade 0.35s ease-out both;
 }
 .wiki-list-item-even {
-  background: #F8FAFC;
+  background: var(--color-bg-secondary);
 }
 .wiki-list-item:hover {
-  background: #EFF6FF;
+  background: var(--color-primary-light);
   border-color: #BFDBFE;
   transform: translateX(2px);
   box-shadow: 0 1px 4px rgba(47, 84, 150, 0.08);
 }
 .wiki-list-item-selected {
-  background: #EFF6FF !important;
+  background: var(--color-primary-light) !important;
   border-color: #BFDBFE !important;
 }
 .wiki-type-icon {
@@ -290,5 +293,55 @@ onUnmounted(() => {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+.wiki-item-table {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wiki-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wiki-item-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+  flex: 1;
+}
+
+.mini-table-preview {
+  margin-left: 24px;
+  max-height: 160px;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 1px;
+}
+
+.mini-table-preview :deep(table) {
+  width: 100%;
+  font-size: 11px;
+  border-collapse: collapse;
+}
+
+.mini-table-preview :deep(th) {
+  background: #F1F5F9;
+  padding: 2px 6px;
+  text-align: left;
+  font-weight: 600;
+  color: #475569;
+  border: 1px solid var(--color-border);
+}
+
+.mini-table-preview :deep(td) {
+  padding: 1px 6px;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
 }
 </style>

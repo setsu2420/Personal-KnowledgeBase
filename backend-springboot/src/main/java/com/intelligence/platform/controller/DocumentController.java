@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.intelligence.platform.common.PageResult;
 import com.intelligence.platform.entity.Document;
 import com.intelligence.platform.mapper.DocumentMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,6 +17,8 @@ import java.util.Map;
 @RequestMapping("/api/documents")
 @CrossOrigin(origins = "*")
 public class DocumentController {
+
+    private static final Logger log = LoggerFactory.getLogger(DocumentController.class);
 
     @Autowired
     private DocumentMapper documentMapper;
@@ -85,7 +89,8 @@ public class DocumentController {
      * 重新抽取文档的知识词条（删除旧词条后重新调用LLM抽取）
      */
     @PostMapping("/{id}/re-extract")
-    public Map<String, Object> reExtract(@PathVariable Long id) {
+    public Map<String, Object> reExtract(@PathVariable Long id,
+                                          @RequestParam(required = false) String fileType) {
         Document doc = documentMapper.selectById(id);
         if (doc == null) {
             return Map.of("status", "error", "message", "文档不存在");
@@ -102,10 +107,10 @@ public class DocumentController {
             // table may not exist yet
         }
 
-        // 重新抽取
+        // 重新抽取，支持指定 fileType（例如对图片表格指定 table 走 VLM 识别）
         try {
             java.util.List<com.intelligence.platform.entity.KnowledgeEntry> entries =
-                    documentParseService.parseAndExtract(id);
+                    documentParseService.parseAndExtract(id, fileType);
             return Map.of(
                     "status", "success",
                     "message", "重新抽取完成",
@@ -115,6 +120,78 @@ public class DocumentController {
         } catch (Exception e) {
             return Map.of("status", "error", "message", "抽取失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 修复历史文档的 project_id（数据迁移：回填 NULL project_id）
+     * 策略：1) 通过标题前缀匹配项目名称；2) 单项目兜底；3) 同步更新关联 knowledge_entries
+     */
+    @PostMapping("/repair-project-id")
+    public Map<String, Object> repairProjectId(@RequestParam(required = false) Long fallbackProjectId) {
+        LambdaQueryWrapper<Document> wrapper = new LambdaQueryWrapper<>();
+        wrapper.isNull(Document::getProjectId);
+        List<Document> orphanDocs = documentMapper.selectList(wrapper);
+
+        int totalScanned = orphanDocs.size();
+        int totalRepaired = 0;
+        int totalOrphan = 0;
+
+        List<com.intelligence.platform.entity.Project> allProjects = projectMapper.selectList(null);
+        if (fallbackProjectId == null && allProjects.size() == 1) {
+            fallbackProjectId = allProjects.get(0).getId();
+        }
+
+        for (Document doc : orphanDocs) {
+            Long targetProjectId = null;
+
+            // 1. 标题前缀匹配
+            if (doc.getTitle() != null) {
+                for (com.intelligence.platform.entity.Project p : allProjects) {
+                    if (doc.getTitle().startsWith(p.getName() + "_")) {
+                        targetProjectId = p.getId();
+                        break;
+                    }
+                }
+            }
+
+            // 2. 单项目兜底
+            if (targetProjectId == null) {
+                targetProjectId = fallbackProjectId;
+            }
+
+            if (targetProjectId != null) {
+                doc.setProjectId(targetProjectId);
+                documentMapper.updateById(doc);
+                totalRepaired++;
+                log.info("Repair document project_id: '{}' (id={}) -> projectId={}",
+                        doc.getTitle(), doc.getId(), targetProjectId);
+
+                // 同步更新该 document 关联的所有 knowledge_entries
+                LambdaQueryWrapper<com.intelligence.platform.entity.KnowledgeEntry> entryWrapper =
+                        new LambdaQueryWrapper<>();
+                entryWrapper.eq(com.intelligence.platform.entity.KnowledgeEntry::getDocumentId, doc.getId());
+                List<com.intelligence.platform.entity.KnowledgeEntry> entries = knowledgeEntryMapper.selectList(entryWrapper);
+                for (com.intelligence.platform.entity.KnowledgeEntry entry : entries) {
+                    if (entry.getProjectId() == null) {
+                        entry.setProjectId(targetProjectId);
+                        knowledgeEntryMapper.updateById(entry);
+                        log.info("Repair entry project_id via document: entry '{}' (id={}) -> projectId={}",
+                                entry.getTitle(), entry.getId(), targetProjectId);
+                    }
+                }
+            } else {
+                totalOrphan++;
+                log.warn("Repair document project_id: '{}' (id={}) 无法确定归属项目，保留 NULL",
+                        doc.getTitle(), doc.getId());
+            }
+        }
+
+        return Map.of(
+                "message", "文档 project_id 修复完成",
+                "total_scanned", totalScanned,
+                "total_repaired", totalRepaired,
+                "total_orphan", totalOrphan
+        );
     }
 
     /**
@@ -173,6 +250,17 @@ public class DocumentController {
             doc.setTitle(newTitle);
             documentMapper.updateById(doc);
             updatedCount++;
+
+            // 同步更新关联 knowledge_entries 的 title
+            LambdaQueryWrapper<com.intelligence.platform.entity.KnowledgeEntry> entryWrapper =
+                    new LambdaQueryWrapper<>();
+            entryWrapper.eq(com.intelligence.platform.entity.KnowledgeEntry::getDocumentId, doc.getId());
+            List<com.intelligence.platform.entity.KnowledgeEntry> entries = knowledgeEntryMapper.selectList(entryWrapper);
+            for (com.intelligence.platform.entity.KnowledgeEntry entry : entries) {
+                entry.setTitle(newTitle);
+                entry.setSourceName(newTitle);
+                knowledgeEntryMapper.updateById(entry);
+            }
         }
 
         return Map.of(

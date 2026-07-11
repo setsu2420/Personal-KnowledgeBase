@@ -910,6 +910,10 @@ public class DocumentParseService {
                             }
                         }
                         entry.setRelated(relList.isEmpty() ? null : String.join(",", relList));
+                        // 同步反向关联：确保关联关系双向存储
+                        if (entry.getRelated() != null && !entry.getRelated().isEmpty()) {
+                            syncReverseRelations(entry);
+                        }
                     } else if (node.has("related")) {
                         String relText = node.get("related").asText().trim();
                         if (relText.isEmpty() || "None".equalsIgnoreCase(relText) || "null".equalsIgnoreCase(relText)) {
@@ -936,12 +940,15 @@ public class DocumentParseService {
             fallback.setTitle(doc.getTitle());
             fallback.setEntryType("concept");
             fallback.setEntryLibrary(library);
+            fallback.setCategoryL1(doc.getCategoryL1());
+            fallback.setCategoryL2(doc.getCategoryL2());
             fallback.setDocumentId(doc.getId());
             fallback.setSourceName(doc.getTitle());
             fallback.setContent("LLM抽取失败，原始响应: " + response.substring(0, Math.min(200, response.length())));
             fallback.setStatus("pending");
             fallback.setConfidence(0.0);
             fallback.setCreatedAt(now);
+            fallback.setProjectId(doc.getProjectId());
             entries.add(fallback);
         }
 
@@ -956,5 +963,37 @@ public class DocumentParseService {
             case "chart" -> "chart";
             default -> "report";
         };
+    }
+
+    /**
+     * 为新建词条同步反向关联：遍历其关联的每个词条，将当前词条标题追加到目标词条的 related 字段中
+     */
+    private void syncReverseRelations(KnowledgeEntry entry) {
+        if (entry.getRelated() == null || entry.getRelated().trim().isEmpty()) return;
+        if (entry.getTitle() == null || entry.getTitle().isEmpty()) return;
+        
+        Long pid = entry.getProjectId();
+        String[] relatedTitles = entry.getRelated().split("\\s*,\\s*");
+        
+        for (String relTitle : relatedTitles) {
+            if (relTitle.trim().isEmpty()) continue;
+            
+            LambdaQueryWrapper<KnowledgeEntry> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(KnowledgeEntry::getTitle, relTitle.trim());
+            if (pid != null) wrapper.eq(KnowledgeEntry::getProjectId, pid);
+            KnowledgeEntry target = knowledgeEntryMapper.selectOne(wrapper);
+            
+            if (target != null) {
+                java.util.Set<String> targetRelated = new java.util.HashSet<>();
+                if (target.getRelated() != null && !target.getRelated().isEmpty()) {
+                    targetRelated.addAll(java.util.Arrays.asList(target.getRelated().split("\\s*,\\s*")));
+                }
+                if (!targetRelated.contains(entry.getTitle().trim())) {
+                    targetRelated.add(entry.getTitle().trim());
+                    target.setRelated(String.join(",", targetRelated));
+                    knowledgeEntryMapper.updateById(target);
+                }
+            }
+        }
     }
 }

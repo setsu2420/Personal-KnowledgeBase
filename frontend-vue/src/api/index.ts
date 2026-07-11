@@ -111,8 +111,10 @@ export const createDecision = (data: any) => api.post('/decisions/', data)
 export const deleteDecision = (id: number) => api.delete(`/decisions/${id}`)
 
 // KG
-export const getKGNodes = () => api.get('/kg/nodes')
-export const getKGEdges = () => api.get('/kg/edges')
+export const getKGNodes = (params?: { page?: number; pageSize?: number }) => 
+  api.get('/kg/nodes', { params })
+export const getKGEdges = (params?: { page?: number; pageSize?: number }) => 
+  api.get('/kg/edges', { params })
 export const getKGGraph = () => api.get('/kg/graph')
 export const getKGInsights = () => api.get('/kg/insights')
 export const buildKGGraph = () => api.post('/kg/build')
@@ -273,7 +275,7 @@ export const deleteQAChatSession = (sessionId: string) => api.delete(`/qa-chat/s
 // Deep Research (深度研究)
 export const getDeepResearches = (params: Record<string, any>) => api.get('/deep-researches', { params })
 export const getDeepResearch = (id: number) => api.get(`/deep-researches/${id}`)
-export const createDeepResearch = (data: { topic: string }) => api.post('/deep-researches/', data)
+export const createDeepResearch = (data: { topic: string }) => api.post('/deep-researches', data)
 export const cancelDeepResearch = (id: number) => api.put(`/deep-researches/${id}/cancel`)
 export const deleteDeepResearch = (id: number) => api.delete(`/deep-researches/${id}`)
 

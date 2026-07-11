@@ -38,7 +38,7 @@
 
       <!-- 右侧：研究结果 -->
       <el-col :span="16">
-        <div class="result-panel">
+        <div class="result-panel research-result">
           <div v-if="selectedTask">
             <div class="result-header">
               <h3>{{ selectedTask.topic }}</h3>
@@ -46,6 +46,14 @@
                 <el-tag :type="taskStatusType(selectedTask.status)" size="small">{{ taskStatusLabel(selectedTask.status) }}</el-tag>
                 <span v-if="selectedTask.source_count">来源: {{ selectedTask.source_count }}篇</span>
                 <span v-if="selectedTask.completed_at">完成: {{ selectedTask.completed_at }}</span>
+                <el-button
+                  v-if="selectedTask.status === 'completed'"
+                  type="primary"
+                  size="small"
+                  plain
+                  @click="downloadPdf"
+                  :loading="pdfLoading"
+                >下载 PDF</el-button>
               </div>
             </div>
 
@@ -97,6 +105,7 @@ import { ArrowDown, ArrowRight, Delete } from '@element-plus/icons-vue'
 import { getDeepResearches, getDeepResearch, createDeepResearch, deleteDeepResearch } from '../../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { marked } from 'marked'
+import html2pdf from 'html2pdf.js'
 import { sendNotification } from '../../composables/useTauri'
 
 // 配置 marked
@@ -110,6 +119,7 @@ const selectedTask = ref<any>(null)
 const showNewResearch = ref(false)
 const starting = ref(false)
 const showThinking = ref(false)
+const pdfLoading = ref(false)
 const newResearch = reactive({ topic: '' })
 // @ts-ignore
 let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -183,6 +193,31 @@ async function startResearch() {
     ElMessage.error('创建失败: ' + (e.message || '未知错误'))
   }
   starting.value = false
+}
+
+async function downloadPdf() {
+  if (!selectedTask.value || !selectedTask.value.synthesis) return
+  pdfLoading.value = true
+  try {
+    const element = document.querySelector('.research-result') as HTMLElement
+    if (!element) {
+      ElMessage.error('未找到要导出的研究内容')
+      return
+    }
+    const opt = {
+      margin: [12, 12, 12, 12],
+      filename: `${selectedTask.value.topic || '深度研究报告'}.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    }
+    await html2pdf().set(opt).from(element).save()
+    ElMessage.success('PDF 下载成功')
+  } catch (e: any) {
+    ElMessage.error('PDF 下载失败: ' + (e.message || '未知错误'))
+  } finally {
+    pdfLoading.value = false
+  }
 }
 
 // 轮询更新进行中的任务状态

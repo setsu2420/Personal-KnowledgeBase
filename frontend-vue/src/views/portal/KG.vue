@@ -7,9 +7,9 @@
           <div class="graph-toolbar">
             <div class="toolbar-left">
               <span class="toolbar-title">知识图谱</span>
-              <el-tag size="small">{{ graphData.nodes?.length || 0 }} 节点</el-tag>
-              <el-tag type="success" size="small">{{ graphData.edges?.length || 0 }} 关系</el-tag>
-              <el-tag type="warning" size="small">{{ graphData.communities?.length || 0 }} 社区</el-tag>
+              <el-tag size="small">{{ totalNodes }} 节点</el-tag>
+              <el-tag type="success" size="small">{{ allEdges.length }} 关系</el-tag>
+              <el-tag type="warning" size="small">{{ currentCommunities.length }} 社区</el-tag>
             </div>
             <div class="toolbar-right">
               <el-radio-group v-model="colorMode" size="small">
@@ -33,6 +33,16 @@
               <span class="legend-dot" :style="{ backgroundColor: color }" />
               {{ typeLabels[type] || type }}
             </span>
+          </div>
+          <div class="graph-pagination" v-if="totalNodes > pageSize">
+            <el-pagination
+              v-model:current-page="currentPage"
+              :page-size="pageSize"
+              :total="totalNodes"
+              layout="prev, pager, next, total"
+              size="small"
+              @current-change="loadPage"
+            />
           </div>
         </div>
       </el-col>
@@ -71,7 +81,7 @@
         <!-- 社区列表 -->
         <div class="community-card">
           <div class="community-header">社区发现（Louvain）</div>
-          <div v-for="comm in (graphData.communities || []).slice(0, 8)" :key="comm.id" class="community-item">
+          <div v-for="comm in currentCommunities.slice(0, 8)" :key="comm.id" class="community-item">
             <span class="comm-dot" :style="{ backgroundColor: communityColors[comm.id % communityColors.length] }" />
             <span class="comm-name">社区 {{ comm.id }}</span>
             <el-tag size="small" type="info">{{ comm.members?.length || 0 }}节点</el-tag>
@@ -89,16 +99,20 @@ import { use } from 'echarts/core'
 import { GraphChart } from 'echarts/charts'
 import { TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { getKGGraph, getKGInsights } from '../../api'
+import { getKGNodes, getKGEdges, getKGInsights } from '../../api'
 
 use([GraphChart, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const chartRef = ref<InstanceType<typeof VChart> | null>(null)
-const graphData = ref<any>({})
+const currentNodes = ref<any[]>([])
+const allEdges = ref<any[]>([])
 const insights = ref<any[]>([])
 const loading = ref(false)
 const selectedNode = ref<any>(null)
 const colorMode = ref<'type' | 'community'>('community')
+const currentPage = ref(1)
+const pageSize = ref(50)
+const totalNodes = ref(0)
 
 const typeColors: Record<string, string> = {
   entity: '#60a5fa',
@@ -138,9 +152,26 @@ function computeLinkCounts(nodes: any[], edges: any[]): Map<number, number> {
   return counts
 }
 
+const currentEdges = computed(() => {
+  const nodeIds = new Set(currentNodes.value.map((n: any) => String(n.id)))
+  return allEdges.value.filter(
+    (e: any) => nodeIds.has(String(e.sourceId)) && nodeIds.has(String(e.targetId))
+  )
+})
+
+const currentCommunities = computed(() => {
+  const map = new Map<number, any[]>()
+  for (const n of currentNodes.value) {
+    const cid = n.communityId ?? 0
+    if (!map.has(cid)) map.set(cid, [])
+    map.get(cid)!.push(n)
+  }
+  return Array.from(map.entries()).map(([id, members]) => ({ id, members, cohesion: 0 }))
+})
+
 const chartOption = computed((): any => {
-  const nodes = graphData.value.nodes || []
-  const edges = graphData.value.edges || []
+  const nodes = currentNodes.value
+  const edges = currentEdges.value
   const linkCounts = computeLinkCounts(nodes, edges)
   const maxLinks = Math.max(1, ...linkCounts.values())
 
@@ -150,7 +181,7 @@ const chartOption = computed((): any => {
     symbolSize: 12 + Math.sqrt((linkCounts.get(n.id) || 0) / maxLinks) * 28,
     category: colorMode.value === 'community' ? (n.communityId || 0) : undefined,
     itemStyle: { color: getNodeColor(n) },
-    label: { show: (linkCounts.get(n.id) || 0) >= 2 || nodes.length <= 30 },
+    label: { show: (linkCounts.get(n.id) || 0) >= 3 || totalNodes.value <= 100 },
     // store original data for click
     _raw: n,
     linkCount: linkCounts.get(n.id) || 0,
@@ -214,11 +245,28 @@ function resetZoom() {
   chartRef.value?.dispatchAction({ type: 'restore' })
 }
 
+async function loadPage(page: number) {
+  loading.value = true
+  try {
+    const res = await getKGNodes({ page, pageSize: pageSize.value })
+    currentNodes.value = res.data.items || []
+    totalNodes.value = res.data.total || 0
+    currentPage.value = page
+  } catch (e) { console.error(e) }
+  loading.value = false
+}
+
 onMounted(async () => {
   loading.value = true
   try {
-    const [graphRes, insightsRes] = await Promise.all([getKGGraph(), getKGInsights()])
-    graphData.value = graphRes.data
+    const [nodeRes, edgeRes, insightsRes] = await Promise.all([
+      getKGNodes({ page: 1, pageSize: pageSize.value }),
+      getKGEdges({ page: 1, pageSize: 10000 }),
+      getKGInsights(),
+    ])
+    currentNodes.value = nodeRes.data.items || []
+    totalNodes.value = nodeRes.data.total || 0
+    allEdges.value = edgeRes.data.items || []
     insights.value = insightsRes.data || []
   } catch (e) { console.error(e) }
   loading.value = false
@@ -261,6 +309,14 @@ onMounted(async () => {
 
 .legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #64748B; }
 .legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+.graph-pagination {
+  display: flex;
+  justify-content: center;
+  padding: 10px 16px;
+  border-top: 1px solid #E2E8F0;
+  background: #F8FAFC;
+}
 
 .detail-card, .insights-card, .community-card {
   background: white;
