@@ -3,7 +3,7 @@
     <el-card>
       <template #header>
         <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span>译丛译著</span>
+          <span>图书</span>
           <el-upload
             :auto-upload="false"
             :show-file-list="false"

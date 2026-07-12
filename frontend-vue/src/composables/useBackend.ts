@@ -29,9 +29,10 @@ async function checkBackendStatus(): Promise<BackendStatus> {
     }
   }
 
-  // Web 降级：调用 /api/health 或任何可用端点
+  // Web 降级：通过 Vite 代理调用 /api/health
   try {
-    const resp = await fetch('http://localhost:8080/api/health', { method: 'GET', signal: AbortSignal.timeout(3000) })
+    const baseUrl = isTauri() ? 'http://localhost:8080' : ''
+    const resp = await fetch(`${baseUrl}/api/health`, { method: 'GET', signal: AbortSignal.timeout(3000) })
     return resp.ok ? 'running' : 'stopped'
   } catch {
     return 'unknown'

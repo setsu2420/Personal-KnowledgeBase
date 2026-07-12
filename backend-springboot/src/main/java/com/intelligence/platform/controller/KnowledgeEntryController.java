@@ -291,6 +291,9 @@ public class KnowledgeEntryController {
     @DeleteMapping("/{id}")
     public Map<String, Object> delete(@PathVariable Long id) {
         knowledgeEntryMapper.deleteById(id);
+        try {
+            vectorSearchService.removeEntry(id);
+        } catch (Exception ignored) {}
         syncKG();
         return Map.of("message", "删除成功");
     }

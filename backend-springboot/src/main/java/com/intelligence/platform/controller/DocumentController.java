@@ -10,8 +10,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api/documents")
@@ -28,6 +31,9 @@ public class DocumentController {
 
     @Autowired
     private com.intelligence.platform.service.DocumentParseService documentParseService;
+
+    @Autowired
+    private com.intelligence.platform.service.VectorSearchService vectorSearchService;
 
     @Autowired
     private com.intelligence.platform.service.ProjectContext projectContext;
@@ -81,8 +87,44 @@ public class DocumentController {
 
     @DeleteMapping("/{id}")
     public Map<String, Object> deleteDocument(@PathVariable Long id) {
+        Document doc = documentMapper.selectById(id);
+        if (doc == null) {
+            return Map.of("message", "文档不存在");
+        }
+
+        // 1. 删除关联的知识词条（数据库）
+        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.intelligence.platform.entity.KnowledgeEntry> deleteWrapper =
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<>();
+        deleteWrapper.eq(com.intelligence.platform.entity.KnowledgeEntry::getDocumentId, id);
+        java.util.List<com.intelligence.platform.entity.KnowledgeEntry> entriesToDelete = knowledgeEntryMapper.selectList(deleteWrapper);
+        int deletedEntries = 0;
+        try {
+            deletedEntries = knowledgeEntryMapper.delete(deleteWrapper);
+            // 2. 从向量索引中移除
+            if (entriesToDelete != null) {
+                for (com.intelligence.platform.entity.KnowledgeEntry entry : entriesToDelete) {
+                    try {
+                        vectorSearchService.removeEntry(entry.getId());
+                    } catch (Exception ignored) {}
+                }
+            }
+            // 3. 删除物理文件
+            if (doc.getFilePath() != null) {
+                try {
+                    java.nio.file.Files.deleteIfExists(java.nio.file.Path.of(doc.getFilePath()));
+                } catch (Exception ignored) {}
+            }
+        } catch (Exception e) {
+            log.warn("清理关联词条失败: {}", e.getMessage());
+        }
+
+        // 4. 删除文档记录
         documentMapper.deleteById(id);
-        return Map.of("message", "删除成功");
+
+        return Map.of(
+                "message", "删除成功",
+                "deleted_entries", deletedEntries
+        );
     }
 
     /**
@@ -267,6 +309,71 @@ public class DocumentController {
                 "status", "success",
                 "updated_count", updatedCount,
                 "message", "批量重命名完成，共更新 " + updatedCount + " 个文档"
+        );
+    }
+
+    /**
+     * 修复孤儿知识词条：查找 documentId 指向不存在文档的 knowledge_entries 并清理
+     * 同时从向量索引中移除。这是数据完整性修复端点，针对已产生的历史孤儿。
+     */
+    @PostMapping("/repair-orphan-entries")
+    public Map<String, Object> repairOrphanEntries(
+            @RequestParam(required = false) Long projectId,
+            @RequestParam(defaultValue = "false") boolean dryRun) {
+        
+        // 1. 查询所有文档 ID
+        List<Document> allDocs = documentMapper.selectList(null);
+        java.util.Set<Long> validDocIds = new java.util.HashSet<>();
+        for (Document d : allDocs) validDocIds.add(d.getId());
+
+        // 2. 查询所有词条（有 documentId 的）
+        LambdaQueryWrapper<com.intelligence.platform.entity.KnowledgeEntry> entryWrapper =
+                new LambdaQueryWrapper<>();
+        if (projectId != null) {
+            entryWrapper.eq(com.intelligence.platform.entity.KnowledgeEntry::getProjectId, projectId);
+        }
+        List<com.intelligence.platform.entity.KnowledgeEntry> allEntries =
+                knowledgeEntryMapper.selectList(entryWrapper);
+
+        // 3. 找出孤儿
+        List<Map<String, Object>> orphans = new ArrayList<>();
+        for (com.intelligence.platform.entity.KnowledgeEntry entry : allEntries) {
+            if (entry.getDocumentId() != null && !validDocIds.contains(entry.getDocumentId())) {
+                orphans.add(Map.of(
+                        "id", entry.getId(),
+                        "title", entry.getTitle() != null ? entry.getTitle() : "",
+                        "entry_type", entry.getEntryType() != null ? entry.getEntryType() : "",
+                        "entry_library", entry.getEntryLibrary() != null ? entry.getEntryLibrary() : "",
+                        "document_id", entry.getDocumentId(),
+                        "project_id", entry.getProjectId() != null ? entry.getProjectId() : 0
+                ));
+            }
+        }
+
+        // 4. 清理
+        int deleted = 0;
+        if (!dryRun && !orphans.isEmpty()) {
+            for (Map<String, Object> orphan : orphans) {
+                Long entryId = ((Number) orphan.get("id")).longValue();
+                try {
+                    vectorSearchService.removeEntry(entryId);
+                } catch (Exception ignored) {}
+                knowledgeEntryMapper.deleteById(entryId);
+                deleted++;
+            }
+        }
+
+        log.info("Orphan repair: found {} orphans, dryRun={}, deleted={}", orphans.size(), dryRun, deleted);
+
+        return Map.of(
+                "status", "success",
+                "orphan_count", orphans.size(),
+                "deleted_count", deleted,
+                "dry_run", dryRun,
+                "orphans", orphans,
+                "message", dryRun
+                        ? "发现 " + orphans.size() + " 个孤儿词条（预览模式，未删除）"
+                        : "已删除 " + deleted + " 个孤儿词条"
         );
     }
 }

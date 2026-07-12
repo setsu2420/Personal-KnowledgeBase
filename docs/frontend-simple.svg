@@ -83,11 +83,11 @@
     <text x="305" y="314" font-size="12" fill="rgba(255,255,255,0.9)">  时间线视图</text>
     <text x="305" y="334" font-size="12" fill="rgba(255,255,255,0.9)">  标签分类管理</text>
 
-    <!-- 译丛译著 Translations -->
+    <!-- 图书库 Books -->
     <rect x="530" y="180" width="230" height="170" rx="8" fill="rgba(255,255,255,0.2)" stroke="rgba(255,255,255,0.5)" stroke-width="1" filter="url(#shadowLight)"/>
     <rect x="530" y="180" width="230" height="34" rx="8" fill="rgba(255,255,255,0.3)"/>
     <rect x="530" y="202" width="230" height="12" fill="rgba(255,255,255,0.3)"/>
-    <text x="645" y="203" text-anchor="middle" font-size="14" font-weight="bold" fill="white">译丛译著 (Translations)</text>
+    <text x="645" y="203" text-anchor="middle" font-size="14" font-weight="bold" fill="white">图书库 (Books)</text>
     <text x="550" y="234" font-size="12" fill="rgba(255,255,255,0.9)">  原文与译文对照</text>
     <text x="550" y="254" font-size="12" fill="rgba(255,255,255,0.9)">  翻译任务管理</text>
     <text x="550" y="274" font-size="12" fill="rgba(255,255,255,0.9)">  译者信息管理</text>

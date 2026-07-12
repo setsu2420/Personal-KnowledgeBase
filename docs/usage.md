@@ -54,7 +54,7 @@ npm run build
 | 仪表盘 | http://localhost:5173/admin |
 | 动态信息 | http://localhost:5173/admin/info-dynamic |
 | 研究报告 | http://localhost:5173/admin/reports |
-| 译丛译著 | http://localhost:5173/admin/translations |
+| 图书库 | http://localhost:5173/admin/translations |
 | 图表 | http://localhost:5173/admin/charts |
 | 项目库 | http://localhost:5173/admin/projects |
 | 组织架构 | http://localhost:5173/admin/org |

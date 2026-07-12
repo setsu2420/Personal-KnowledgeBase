@@ -227,7 +227,7 @@ const typeLabels: Record<string, string> = {
 }
 const entryTypeLabels: Record<string, string> = {
   research_report: '研究报告', dynamic_info: '动态信息',
-  translation: '译丛译著', chart: '图表',
+  translation: '图书', chart: '图表',
 }
 const communityColors = [
   '#60a5fa', '#4ade80', '#fb923c', '#c084fc', '#f87171',

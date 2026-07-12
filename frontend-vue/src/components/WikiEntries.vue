@@ -64,8 +64,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue'
-import { Search, Picture, Grid } from '@element-plus/icons-vue'
-import { marked } from 'marked'
+import { Search } from '@element-plus/icons-vue'
 import SkeletonLoader from './SkeletonLoader.vue'
 
 interface KnowledgeEntry {
@@ -166,14 +165,6 @@ const filteredEntries = computed(() => {
   result = result.filter((item: KnowledgeEntry) => item.entryType !== 'image' && item.entryType !== 'table')
   return result
 })
-
-function renderMiniTable(markdown: string): string {
-  if (!markdown) return ''
-  // 截取前 5 行（1 表头 + 1 分隔符 + 3 数据行）
-  const lines = markdown.split('\n')
-  const preview = lines.slice(0, 5).join('\n')
-  return marked.parse(preview) as string
-}
 
 const paginatedEntries = computed(() => {
   const start = (currentPage.value - 1) * pageSize.value

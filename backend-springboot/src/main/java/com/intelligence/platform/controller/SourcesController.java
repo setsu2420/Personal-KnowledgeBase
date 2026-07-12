@@ -2,10 +2,13 @@ package com.intelligence.platform.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.intelligence.platform.entity.Document;
+import com.intelligence.platform.entity.KnowledgeEntry;
 import com.intelligence.platform.mapper.DocumentMapper;
+import com.intelligence.platform.mapper.KnowledgeEntryMapper;
 import com.intelligence.platform.service.DocumentParseService;
 import com.intelligence.platform.service.FileValidationService;
 import com.intelligence.platform.service.SourceIdentityService;
+import com.intelligence.platform.service.VectorSearchService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,11 +39,15 @@ public class SourcesController {
     @Autowired
     private DocumentMapper documentMapper;
     @Autowired
+    private KnowledgeEntryMapper knowledgeEntryMapper;
+    @Autowired
     private DocumentParseService documentParseService;
     @Autowired
     private FileValidationService fileValidationService;
     @Autowired
     private SourceIdentityService sourceIdentityService;
+    @Autowired
+    private VectorSearchService vectorSearchService;
 
     @Value("${upload.dir:./uploads}")
     private String uploadDir;
@@ -264,7 +271,28 @@ public class SourcesController {
             return Map.of("status", "error", "message", "文档不存在");
         }
 
-        // 删除磁盘文件
+        // 1. 删除关联的知识词条（数据库）
+        LambdaQueryWrapper<KnowledgeEntry> deleteWrapper = new LambdaQueryWrapper<>();
+        deleteWrapper.eq(KnowledgeEntry::getDocumentId, id);
+        List<KnowledgeEntry> entriesToDelete = knowledgeEntryMapper.selectList(deleteWrapper);
+        int deletedEntries = 0;
+        try {
+            deletedEntries = knowledgeEntryMapper.delete(deleteWrapper);
+            // 2. 从向量索引中移除
+            if (entriesToDelete != null) {
+                for (KnowledgeEntry entry : entriesToDelete) {
+                    try {
+                        vectorSearchService.removeEntry(entry.getId());
+                    } catch (Exception ignored) {
+                        log.warn("从向量索引移除词条失败: {}", entry.getId());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("清理关联词条失败: {}", e.getMessage());
+        }
+
+        // 3. 删除磁盘文件
         if (doc.getFilePath() != null) {
             try {
                 Files.deleteIfExists(Path.of(doc.getFilePath()));
@@ -274,7 +302,8 @@ public class SourcesController {
         }
 
         documentMapper.deleteById(id);
-        return Map.of("status", "success", "message", "来源已删除: " + doc.getTitle());
+        return Map.of("status", "success", "message", "来源已删除: " + doc.getTitle(),
+                "deleted_entries", deletedEntries);
     }
 
     /**

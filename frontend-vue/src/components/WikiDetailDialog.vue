@@ -133,6 +133,7 @@
           <div class="entry-content markdown-body" v-html="renderMarkdownContent(entry.content)"></div>
         </template>
       </div>
+
     </div>
     <template #footer v-if="!editMode">
       <el-button @click="dialogVisible = false">关闭</el-button>
@@ -141,11 +142,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import { Calendar, PriceTag, Collection, Link } from '@element-plus/icons-vue'
+import { ref, computed } from 'vue'
+import { Calendar, PriceTag, Collection, Link, Notebook, OfficeBuilding, Opportunity, Setting, Search, Switch, Files, Picture, Grid, Document } from '@element-plus/icons-vue'
 import { updateTableMarkdown, getMediaUrl } from '../api'
 import { ElMessage } from 'element-plus'
-import { marked } from 'marked'
+import { renderPreviewMarkdown } from '../utils/previewFormatting'
 
 interface KnowledgeEntry {
   id: number
@@ -167,11 +168,6 @@ interface KnowledgeEntry {
   description?: string
   related?: string
 }
-
-marked.setOptions({
-  breaks: true,
-  gfm: true,
-})
 
 const props = defineProps<{
   entry: KnowledgeEntry | null
@@ -197,8 +193,7 @@ const editTableMarkdown = ref('')
 const editSaving = ref(false)
 
 function renderMarkdownContent(md: string): string {
-  if (!md) return ''
-  return marked.parse(md) as string
+  return renderPreviewMarkdown(md)
 }
 
 function getTypeStyle(type: string) {
@@ -417,6 +412,17 @@ async function saveTableEdit() {
   background: #e0e7ff;
   color: #3730a3;
   transform: translateY(-1px);
+}
+.preview-mention {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-weight: 700;
+  border: 1px solid #bfdbfe;
 }
 .wiki-body-content {
   padding: 4px 8px;

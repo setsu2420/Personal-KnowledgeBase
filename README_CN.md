@@ -1,9 +1,6 @@
 # 智能情报分析平台
 
 <p align="center">
-  <img src="src-tauri/icons/icon.png" width="128" height="128" style="border-radius: 22%;" alt="Logo">
-</p>
-<p align="center">
   <strong>面向无人系统研究的专业化智能情报分析平台。</strong>
 
   上传文档、构建知识图谱、智能问答 —— 全部由大语言模型驱动。
@@ -23,10 +20,6 @@
 </p>
 
 ---
-
-<p align="center">
-  <img src="docs/project-architecture.svg" width="100%" alt="系统架构">
-</p>
 
 ## 功能特性
 

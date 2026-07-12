@@ -172,10 +172,11 @@ public class QAChatController {
 
             // 6. 保存问答记录
             QARecord record = new QARecord();
+            record.setProjectId(projectContext.getCurrentProjectId());
             record.setQuestion(question);
             record.setAnswer(answer);
             record.setConfidence(confidence);
-            record.setSources(sources.toString());
+            record.setSources(objectMapper.writeValueAsString(sources));
             record.setUserName("分析人员");
             record.setSessionId(sessionId);
             record.setCreatedAt(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
@@ -438,6 +439,7 @@ public class QAChatController {
      * 优先使用向量搜索（语义相似度），回退到关键词搜索
      */
     private List<KnowledgeEntry> searchRelevantEntries(String question, int maxResults) {
+        Long projectId = projectContext.getCurrentProjectId();
         // 优先使用向量搜索（FAISS IndexFlatIP 等价实现）
         try {
             List<VectorIndex.SearchResult> vectorResults = vectorSearchService.search(question, maxResults);
@@ -448,23 +450,79 @@ public class QAChatController {
                         .map(VectorIndex.SearchResult::id)
                         .toList();
                 if (!ids.isEmpty()) {
-                    return knowledgeEntryMapper.selectBatchIds(ids);
+                    List<KnowledgeEntry> entries = knowledgeEntryMapper.selectBatchIds(ids);
+                    // 按项目隔离过滤
+                    if (projectId != null) {
+                        entries = entries.stream()
+                                .filter(e -> projectId.equals(e.getProjectId()))
+                                .collect(Collectors.toList());
+                    }
+                    if (!entries.isEmpty()) {
+                        return entries;
+                    }
                 }
             }
         } catch (Exception e) {
             log.warn("向量搜索失败，回退到关键词搜索: {}", e.getMessage());
         }
 
-        // 回退：关键词搜索
-        String[] keywords = Arrays.stream(question.split("[\\s,，。？！、]+"))
+        // 回退：关键词搜索（增强中文混合查询支持）
+        String[] rawKeywords = Arrays.stream(question.split("[\\s,，。？！、；：]+"))
                 .filter(kw -> kw.length() >= 2)
                 .toArray(String[]::new);
 
-        if (keywords.length == 0) {
+        if (rawKeywords.length == 0) {
             return List.of();
         }
 
+        // 扩展关键词：对中英文混合查询，额外提取英文/数字部分
+        // 例："什么是OPD" → 添加 "OPD"；"MINILLM是什么" → 添加 "MINILLM"
+        java.util.List<String> expandedKwList = new java.util.ArrayList<>();
+        java.util.regex.Pattern engPattern = java.util.regex.Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{1,}");
+        for (String kw : rawKeywords) {
+            expandedKwList.add(kw);
+            // 提取连续英文/数字部分作为独立关键词
+            java.util.regex.Matcher m = engPattern.matcher(kw);
+            while (m.find()) {
+                String engPart = m.group();
+                if (!engPart.equals(kw) && !expandedKwList.contains(engPart)) {
+                    expandedKwList.add(engPart);
+                }
+            }
+            // 提取纯中文部分（移除英文和数字后）
+            String cnPart = kw.replaceAll("[A-Za-z0-9._-]+", "").trim();
+            if (cnPart.length() >= 2 && !cnPart.equals(kw) && !expandedKwList.contains(cnPart)) {
+                expandedKwList.add(cnPart);
+            }
+        }
+        // 去除常见中文疑问前缀/后缀，生成干净的搜索词
+        java.util.List<String> finalKwList = new java.util.ArrayList<>();
+        String[] questionAffixes = {"什么是", "是什么", "如何", "怎么", "为什么", "什么", "怎样", "怎么样"};
+        for (String kw : expandedKwList) {
+            String cleaned = kw;
+            // 移除疑问前缀
+            for (String affix : questionAffixes) {
+                if (cleaned.startsWith(affix) && cleaned.length() > affix.length()) {
+                    cleaned = cleaned.substring(affix.length());
+                }
+                if (cleaned.endsWith(affix) && cleaned.length() > affix.length()) {
+                    cleaned = cleaned.substring(0, cleaned.length() - affix.length());
+                }
+            }
+            cleaned = cleaned.trim();
+            if (cleaned.length() >= 2 && !finalKwList.contains(cleaned)) {
+                finalKwList.add(cleaned);
+            } else if (!finalKwList.contains(kw)) {
+                finalKwList.add(kw);
+            }
+        }
+
+        String[] keywords = finalKwList.toArray(new String[0]);
+        log.info("关键词搜索 - 原始: {}, 扩展后: {}", 
+                Arrays.toString(rawKeywords), Arrays.toString(keywords));
+
         LambdaQueryWrapper<KnowledgeEntry> wrapper = new LambdaQueryWrapper<>();
+        if (projectId != null) wrapper.eq(KnowledgeEntry::getProjectId, projectId);
         wrapper.in(KnowledgeEntry::getStatus, "approved", "pending")
                 .and(w -> {
                     for (String kw : keywords) {
@@ -552,15 +610,20 @@ public class QAChatController {
     }
 
     /**
-     * 获取会话历史（按最近消息时间倒序排列）
+     * 获取会话历史（按项目隔离，按最近消息时间倒序排列）
      */
     @GetMapping("/sessions")
     public List<Map<String, Object>> listSessions() {
-        List<QARecord> all = qaRecordMapper.selectList(
-                new LambdaQueryWrapper<QARecord>()
-                        .ne(QARecord::getSessionId, "")
-                        .isNotNull(QARecord::getSessionId)
-                        .orderByAsc(QARecord::getCreatedAt));
+        Long projectId = projectContext.getCurrentProjectId();
+        LambdaQueryWrapper<QARecord> sessionWrapper = new LambdaQueryWrapper<QARecord>()
+                .ne(QARecord::getSessionId, "")
+                .isNotNull(QARecord::getSessionId);
+        if (projectId != null) {
+            sessionWrapper.eq(QARecord::getProjectId, projectId);
+        }
+        sessionWrapper.orderByAsc(QARecord::getCreatedAt);
+
+        List<QARecord> all = qaRecordMapper.selectList(sessionWrapper);
 
         return all.stream()
                 .filter(r -> r.getSessionId() != null && !r.getSessionId().isEmpty())
@@ -586,24 +649,32 @@ public class QAChatController {
     }
 
     /**
-     * 获取指定会话的消息
+     * 获取指定会话的消息（按项目隔离）
      */
     @GetMapping("/session/{sessionId}")
     public List<QARecord> getSession(@PathVariable String sessionId) {
-        return qaRecordMapper.selectList(
-                new LambdaQueryWrapper<QARecord>()
-                        .eq(QARecord::getSessionId, sessionId)
-                        .orderByAsc(QARecord::getCreatedAt));
+        Long projectId = projectContext.getCurrentProjectId();
+        LambdaQueryWrapper<QARecord> wrapper = new LambdaQueryWrapper<QARecord>()
+                .eq(QARecord::getSessionId, sessionId);
+        if (projectId != null) {
+            wrapper.eq(QARecord::getProjectId, projectId);
+        }
+        wrapper.orderByAsc(QARecord::getCreatedAt);
+        return qaRecordMapper.selectList(wrapper);
     }
 
     /**
-     * 删除指定会话的所有消息记录
+     * 删除指定会话的所有消息记录（按项目隔离）
      */
     @DeleteMapping("/session/{sessionId}")
     public Map<String, Object> deleteSession(@PathVariable String sessionId) {
-        int deleted = qaRecordMapper.delete(
-                new LambdaQueryWrapper<QARecord>()
-                        .eq(QARecord::getSessionId, sessionId));
+        Long projectId = projectContext.getCurrentProjectId();
+        LambdaQueryWrapper<QARecord> wrapper = new LambdaQueryWrapper<QARecord>()
+                .eq(QARecord::getSessionId, sessionId);
+        if (projectId != null) {
+            wrapper.eq(QARecord::getProjectId, projectId);
+        }
+        int deleted = qaRecordMapper.delete(wrapper);
         return Map.of("message", "已删除会话 " + sessionId + "（" + deleted + " 条记录）");
     }
 }

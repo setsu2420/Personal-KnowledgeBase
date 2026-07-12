@@ -7,6 +7,7 @@ import com.intelligence.platform.mapper.KnowledgeEntryMapper;
 import com.intelligence.platform.service.DocumentParseService;
 import com.intelligence.platform.service.FileValidationService;
 import com.intelligence.platform.service.UploadTaskService;
+import com.intelligence.platform.service.VectorSearchService;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -49,6 +50,9 @@ public class UploadController {
     private UploadTaskService uploadTaskService;
 
     @Autowired
+    private VectorSearchService vectorSearchService;
+
+    @Autowired
     private com.intelligence.platform.mapper.ProjectMapper projectMapper;
 
     @Autowired(required = false)
@@ -76,7 +80,7 @@ public class UploadController {
     private static final java.util.Map<String, String> DOC_TYPE_LABELS = java.util.Map.of(
             "report", "研究报告",
             "dynamic", "动态信息",
-            "translation", "译丛译著",
+            "translation", "图书",
             "chart", "图表数据",
             "policy", "政策文件",
             "news", "新闻资讯"
@@ -133,7 +137,7 @@ public class UploadController {
     private static final java.util.List<java.util.Map<String, String>> LIBRARIES = java.util.List.of(
             java.util.Map.of("value", "report", "label", "研究报告库"),
             java.util.Map.of("value", "dynamic", "label", "动态信息库"),
-            java.util.Map.of("value", "translation", "label", "译丛译著库"),
+            java.util.Map.of("value", "translation", "label", "图书库"),
             java.util.Map.of("value", "chart", "label", "图表数据库"),
             java.util.Map.of("value", "policy", "label", "政策文件库"),
             java.util.Map.of("value", "news", "label", "新闻资讯库")
@@ -179,9 +183,19 @@ public class UploadController {
                     "existing_id", existing.get(0).getId());
         }
         
-        // 如果强制重新处理且文档已存在，删除旧的知识条目
+        // 如果强制重新处理且文档已存在，删除旧的知识条目（数据库+向量索引）
         if (!existing.isEmpty() && forceReprocess) {
             Long existingDocId = existing.get(0).getId();
+            // 先从向量索引中移除
+            List<KnowledgeEntry> oldEntries = knowledgeEntryMapper.selectList(
+                    new LambdaQueryWrapper<KnowledgeEntry>().eq(KnowledgeEntry::getDocumentId, existingDocId));
+            if (oldEntries != null) {
+                for (KnowledgeEntry oldEntry : oldEntries) {
+                    try {
+                        vectorSearchService.removeEntry(oldEntry.getId());
+                    } catch (Exception ignored) {}
+                }
+            }
             knowledgeEntryMapper.delete(
                     new LambdaQueryWrapper<KnowledgeEntry>().eq(KnowledgeEntry::getDocumentId, existingDocId));
             documentMapper.deleteById(existingDocId);
@@ -532,8 +546,22 @@ public class UploadController {
 
             // 入库
             Long projectId = projectContext.getCurrentProjectId();
+
+            // 检测文件类型（用于图表库自动区分图片/表格）
+            String fileType = "";
+            if ("chart".equals(finalDocType)) {
+                String ext = extension.toLowerCase();
+                if (FileValidationService.IMAGE_EXTENSIONS.contains(ext)) {
+                    fileType = "image";
+                } else if (FileValidationService.TABLE_EXTENSIONS.contains(ext)) {
+                    fileType = "table";
+                }
+            }
+
+            // 生成标题（传递 fileType 和 originalFilename，确保图表类文件保留扩展名）
+            String autoTitle = generateAutoTitle(projectId, finalDocType, fileType, filename);
             Document doc = new Document();
-            doc.setTitle(generateAutoTitle(projectId, finalDocType));
+            doc.setTitle(autoTitle);
             doc.setCategoryL1(finalCategoryL1);
             doc.setCategoryL2(categoryL2);
             doc.setDocType(finalDocType);
@@ -549,23 +577,33 @@ public class UploadController {
             doc.setProjectId(projectId);
             documentMapper.insert(doc);
 
-            // 异步抽取知识词条（传递用户选择的目标库）
+            // 解析文档并提取知识词条
             int entryCount = 0;
+            String errorMsg = null;
             try {
                 List<com.intelligence.platform.entity.KnowledgeEntry> entries = documentParseService.parseAndExtract(doc.getId(), finalLibrary);
                 entryCount = entries.size();
             } catch (Exception e) {
+                // 解析失败，记录错误并返回详细信息
+                errorMsg = e.getMessage();
+                if (errorMsg == null || errorMsg.length() > 200) {
+                    errorMsg = (errorMsg != null ? errorMsg.substring(0, 200) : "未知错误");
+                }
+                System.err.println("解析文档失败 (id=" + doc.getId() + ", title=" + autoTitle + "): " + errorMsg);
                 entryCount = -1;
             }
 
-            results.add(Map.of(
-                    "filename", filename,
-                    "status", "success",
-                    "id", doc.getId(),
-                    "library", finalLibrary,
-                    "category", finalCategoryL1,
-                    "entry_count", entryCount
-            ));
+            Map<String, Object> resultItem = new java.util.LinkedHashMap<>();
+            resultItem.put("filename", filename);
+            resultItem.put("status", entryCount >= 0 ? "success" : "error");
+            resultItem.put("id", doc.getId());
+            resultItem.put("library", finalLibrary);
+            resultItem.put("category", finalCategoryL1);
+            resultItem.put("entry_count", entryCount);
+            if (errorMsg != null) {
+                resultItem.put("message", "词条抽取失败: " + errorMsg);
+            }
+            results.add(resultItem);
         }
 
         return Map.of("total", files.size(), "results", results);

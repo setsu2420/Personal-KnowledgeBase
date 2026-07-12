@@ -470,7 +470,7 @@ X-Project-Id: {{ currentProjectId || '11' }}</code></pre>
                         <td style="padding: 10px; font-size: 12px; font-weight: bold; font-family: monospace;">docType</td>
                         <td style="padding: 10px; font-size: 12px; color: #475569;">String</td>
                         <td style="padding: 10px; font-size: 12px; color: #ef4444; font-weight: bold;">是</td>
-                        <td style="padding: 10px; font-size: 12px; color: #475569;">资料库分类：<code>report</code> (研究报告), <code>dynamic</code> (动态信息), <code>translation</code> (译丛译著), <code>chart</code> (图表)。</td>
+                        <td style="padding: 10px; font-size: 12px; color: #475569;">资料库分类：<code>report</code> (研究报告), <code>dynamic</code> (动态信息), <code>translation</code> (图书), <code>chart</code> (图表)。</td>
                       </tr>
                       <tr style="border-bottom: 1px solid #f1f5f9;">
                         <td style="padding: 10px; font-size: 12px; font-weight: bold; font-family: monospace;">sourceOrigin</td>

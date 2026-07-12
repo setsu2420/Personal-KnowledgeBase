@@ -65,7 +65,7 @@ public class DeepResearchController {
 
         LambdaQueryWrapper<DeepResearch> wrapper = new LambdaQueryWrapper<>();
         Long pid = projectContext.getCurrentProjectId();
-        if (pid != null) wrapper.and(w -> w.eq(DeepResearch::getProjectId, pid).or().isNull(DeepResearch::getProjectId));
+        if (pid != null) wrapper.eq(DeepResearch::getProjectId, pid);
         if (status != null && !status.isEmpty()) wrapper.eq(DeepResearch::getStatus, status);
         wrapper.orderByDesc(DeepResearch::getCreatedAt);
 
@@ -76,7 +76,14 @@ public class DeepResearchController {
 
     @GetMapping("/{id}")
     public DeepResearch get(@PathVariable Long id) {
-        return deepResearchMapper.selectById(id);
+        DeepResearch research = deepResearchMapper.selectById(id);
+        if (research == null) return null;
+        // 项目隔离：仅允许访问当前项目的深度研究
+        Long pid = projectContext.getCurrentProjectId();
+        if (pid != null && research.getProjectId() != null && !pid.equals(research.getProjectId())) {
+            return null; // 不返回其他项目的数据
+        }
+        return research;
     }
 
     /**
@@ -304,17 +311,22 @@ public class DeepResearchController {
      */
     @PutMapping("/{id}/cancel")
     public Map<String, Object> cancel(@PathVariable Long id) {
+        Long pid = projectContext.getCurrentProjectId();
+        LambdaUpdateWrapper<DeepResearch> wrapper = new LambdaUpdateWrapper<DeepResearch>()
+                .eq(DeepResearch::getId, id);
+        if (pid != null) wrapper.eq(DeepResearch::getProjectId, pid);
         deepResearchMapper.update(null,
-                new LambdaUpdateWrapper<DeepResearch>()
-                        .eq(DeepResearch::getId, id)
-                        .set(DeepResearch::getStatus, "cancelled")
-        );
+                wrapper.set(DeepResearch::getStatus, "cancelled"));
         return Map.of("message", "任务已取消");
     }
 
     @DeleteMapping("/{id}")
     public Map<String, Object> delete(@PathVariable Long id) {
-        deepResearchMapper.deleteById(id);
+        Long pid = projectContext.getCurrentProjectId();
+        LambdaQueryWrapper<DeepResearch> wrapper = new LambdaQueryWrapper<DeepResearch>()
+                .eq(DeepResearch::getId, id);
+        if (pid != null) wrapper.eq(DeepResearch::getProjectId, pid);
+        deepResearchMapper.delete(wrapper);
         return Map.of("message", "删除成功");
     }
 }

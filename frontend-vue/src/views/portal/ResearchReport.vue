@@ -42,7 +42,7 @@
           <el-select v-model="uploadForm.docType">
             <el-option label="研究报告" value="report" />
             <el-option label="动态信息" value="dynamic" />
-            <el-option label="译丛译著" value="translation" />
+            <el-option label="图书" value="translation" />
             <el-option label="图表" value="chart" />
           </el-select>
         </el-form-item>
@@ -149,6 +149,7 @@ import { UploadFilled, Loading, FolderOpened } from '@element-plus/icons-vue'
 import { uploadFile, getDocuments } from '../../api'
 import { ElMessage } from 'element-plus'
 import { isTauri, openFileAsFiles, DOC_FILTERS, sendNotification } from '../../composables/useTauri'
+import { getLibraryLabel } from '../../utils/libraryLabels'
 
 const isTauriEnv = isTauri()
 
@@ -174,10 +175,10 @@ const uploadProgress = reactive({
 })
 
 const libraries = [
-  { key: 'report', name: '研究报告库' },
-  { key: 'dynamic', name: '动态信息库' },
-  { key: 'translation', name: '译丛译著库' },
-  { key: 'chart', name: '图表库' },
+  { key: 'report', name: getLibraryLabel('report') },
+  { key: 'dynamic', name: getLibraryLabel('dynamic') },
+  { key: 'translation', name: getLibraryLabel('translation') },
+  { key: 'chart', name: getLibraryLabel('chart') },
 ]
 
 // 加载各知识库的文档统计 and 最近上传

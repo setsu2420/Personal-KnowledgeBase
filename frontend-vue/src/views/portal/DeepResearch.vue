@@ -205,7 +205,7 @@ async function downloadPdf() {
       return
     }
     const opt = {
-      margin: [12, 12, 12, 12],
+      margin: [12, 12, 12, 12] as [number, number, number, number],
       filename: `${selectedTask.value.topic || '深度研究报告'}.pdf`,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },

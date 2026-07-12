@@ -10,6 +10,8 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest'
+import { getLibraryLabel } from '../utils/libraryLabels'
+import { extractMentionTokens } from '../utils/previewFormatting'
 
 // 在 Node.js 环境中模拟 window 对象
 beforeAll(() => {
@@ -66,8 +68,36 @@ describe('词条百科紧凑列表测试', () => {
   })
 })
 
+describe('库命名和预览一致性测试', () => {
+  it('步骤5: 验证图书库名称应为图书库，不再使用旧译丛译著库名称', () => {
+    console.log('=== 测试: 图书库命名一致性 ===')
+    console.log('测试场景: 资料库标题应统一为“图书库”')
+
+    const translationLabel = getLibraryLabel('translation')
+
+    console.log('translation 标题:', translationLabel)
+    expect(translationLabel).toBe('图书库')
+    expect(translationLabel).not.toContain('译丛译著')
+    console.log('测试结果: PASS - 图书库命名统一')
+  })
+})
+
+describe('文件提及与预览增强测试', () => {
+  it('步骤10: 验证 @ 文件提及 token 可以被稳定识别并渲染为预览标记', () => {
+    console.log('=== 测试: @ 文件提及识别 ===')
+    console.log('测试场景: 文本中出现 @report.pdf 与 @chart.png 应提取为可展示的引用标记')
+
+    const text = '请参考 @report.pdf 以及 @chart.png 做交叉验证。'
+    const mentions = extractMentionTokens(text)
+
+    console.log('提及结果:', mentions)
+    expect(mentions).toEqual(['@report.pdf', '@chart.png'])
+    console.log('测试结果: PASS - @ 文件提及识别稳定')
+  })
+})
+
 describe('库内容显示测试', () => {
-  it('步骤5: 验证 PDF 文档使用正确的封面URL', () => {
+  it('步骤6: 验证 PDF 文档使用正确的封面URL', () => {
     console.log('=== 测试: PDF 文档封面URL生成 ===')
     console.log('测试场景: PDF 文档应使用 pdf-cover 端点')
 
@@ -80,7 +110,7 @@ describe('库内容显示测试', () => {
     console.log('测试结果: PASS - PDF文档使用正确的封面URL')
   })
 
-  it('步骤6: 验证图片文档使用正确的媒体URL', () => {
+  it('步骤7: 验证图片文档使用正确的媒体URL', () => {
     console.log('=== 测试: 图片文档URL生成 ===')
     console.log('测试场景: 图表库图片应使用 raw media 端点')
 
@@ -94,7 +124,7 @@ describe('库内容显示测试', () => {
     console.log('测试结果: PASS - 图片文档使用正确的媒体URL')
   })
 
-  it('步骤7: 验证其他文档使用正确的文件URL', () => {
+  it('步骤8: 验证其他文档使用正确的文件URL', () => {
     console.log('=== 测试: 其他文档URL生成 ===')
     console.log('测试场景: Word/Excel等文档应使用 doc-file 端点')
 
@@ -107,7 +137,7 @@ describe('库内容显示测试', () => {
     console.log('测试结果: PASS - 其他文档使用正确的文件URL')
   })
 
-  it('步骤8: 验证词条列表显示逻辑', () => {
+  it('步骤9: 验证词条列表显示逻辑', () => {
     console.log('=== 测试: 词条列表显示逻辑 ===')
     console.log('测试场景: 词条列表应仅显示名称')
 

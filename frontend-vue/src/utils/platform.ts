@@ -15,11 +15,11 @@ export function isWeb(): boolean {
 
 // 获取 API 基础 URL
 export function getApiBaseUrl(): string {
-  // Web 模式下直接访问后端
+  // Web 模式下通过 Vite 代理访问（相对路径，避免跨域）
   if (isWeb()) {
-    return 'http://localhost:8080';
+    return '';
   }
-  // Tauri 模式下也访问后端（通过 sidecar）
+  // Tauri 模式下直接访问后端
   return 'http://localhost:8080';
 }
 

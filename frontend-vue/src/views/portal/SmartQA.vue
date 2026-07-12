@@ -47,7 +47,8 @@
                   <!-- 助手消息 -->
                   <template v-else>
                     <!-- 文字回答（表格由 LLM 通过 markdown 自然生成） -->
-                    <div class="answer-text markdown-body" v-html="formatText(msg.content, 'assistant')">
+                    <div class="answer-wrapper">
+                      <div class="answer-text markdown-body" v-html="formatText(msg.content, 'assistant')" />
                       <button class="copy-btn" @click="copyAnswer(msg.content)" title="复制回答">
                         <el-icon><DocumentCopy /></el-icon>
                       </button>
@@ -98,6 +99,7 @@
                             <img
                               :src="getImageUrl(img.media_path || '')"
                               class="result-image"
+                              :alt="img.title || '智能问答来源图片'"
                               @error="handleImageError"
                             />
                             <div class="image-error" style="display:none; padding:20px; background:#f5f5f5; text-align:center; color:#999; border-radius:4px;">
@@ -115,39 +117,69 @@
           </div>
 
           <div class="chat-input-area">
-            <el-input
-              v-model="question"
-              placeholder="输入您的问题..."
-              @keyup.enter="askQuestion"
-              :disabled="asking"
-              size="large"
-            />
-            <el-button type="primary" size="large" @click="askQuestion" :loading="asking" :disabled="asking">
-              提问
-            </el-button>
+            <div class="mention-input-wrapper">
+              <!-- @mention badges above input -->
+              <div v-if="mentionSelected.length > 0" class="mention-badges">
+                <el-tag
+                  v-for="doc in mentionSelected"
+                  :key="doc.id"
+                  closable
+                  type="primary"
+                  size="small"
+                  @close="removeMention(doc.id)"
+                  class="mention-tag"
+                >
+                  📎 {{ doc.title }}
+                </el-tag>
+              </div>
+              <textarea
+                ref="inputRef"
+                v-model="question"
+                class="chat-textarea"
+                :placeholder="'输入您的问题，输入 @ 提及文件...' + (asking ? '（正在思考...）' : '')"
+                :disabled="asking"
+                @keyup.enter.exact.prevent="askQuestion"
+                @input="handleInputChange"
+                @keydown.escape="mentionVisible = false"
+                rows="2"
+              />
+              <!-- @mention dropdown -->
+              <div v-if="mentionVisible" class="mention-dropdown">
+                <div
+                  v-for="doc in mentionFilter"
+                  :key="doc.id"
+                  class="mention-item"
+                  @click="selectMention(doc)"
+                >
+                  <el-icon class="mention-icon"><Document /></el-icon>
+                  <span class="mention-title">{{ doc.title }}</span>
+                  <el-tag size="small" type="info" class="mention-type">{{ doc.docType }}</el-tag>
+                </div>
+                <div v-if="mentionFilter.length === 0" class="mention-empty">没有匹配的文件</div>
+              </div>
+            </div>
+            <div class="input-actions">
+              <el-button type="primary" size="large" @click="askQuestion" :loading="asking" :disabled="asking || !question.trim()">
+                提问
+              </el-button>
+            </div>
           </div>
         </div>
       </el-col>
     </el-row>
     <!-- 图片预览弹窗 -->
     <el-dialog v-model="previewVisible" width="fit-content" top="5vh" :show-close="true" class="image-preview-dialog" append-to-body>
-      <img :src="previewUrl" class="preview-full-image" />
+      <img :src="previewUrl" class="preview-full-image" alt="图片预览" />
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
-import { Delete, DocumentCopy } from '@element-plus/icons-vue'
-import { askQuestion, askQuestionStream, getQAChatSessions, getQAChatSession, deleteQAChatSession, getMediaUrl, getSettings, updateSettings } from '../../api'
+import { ref, computed, onMounted, nextTick } from 'vue'
+import { Delete, DocumentCopy, Document } from '@element-plus/icons-vue'
+import { askQuestion as askQuestionApi, askQuestionStream, getQAChatSessions, getQAChatSession, deleteQAChatSession, getMediaUrl, getSettings, updateSettings, getDocuments } from '../../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { marked } from 'marked'
-
-// 配置 marked
-marked.setOptions({
-  breaks: true,
-  gfm: true,
-})
+import { renderPreviewMarkdown } from '../../utils/previewFormatting'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -171,13 +203,25 @@ const previewVisible = ref(false)
 const previewUrl = ref('')
 const streamEnabled = ref(true) // 流式回答开关，默认开启
 
+// @mention state
+const mentionVisible = ref<boolean>(false)
+const mentionQuery = ref<string>('')
+const mentionDocs = ref<any[]>([])
+const mentionSelected = ref<Array<{id: number, title: string}>>([])
+const inputRef = ref<HTMLTextAreaElement | null>(null)
+
+const mentionFilter = computed(() => {
+  if (!mentionQuery.value) return mentionDocs.value.slice(0, 20)
+  const q = mentionQuery.value.toLowerCase()
+  return mentionDocs.value.filter(d => d.title?.toLowerCase().includes(q)).slice(0, 20)
+})
+
 function formatText(text: string, role: 'user' | 'assistant' = 'assistant'): string {
   if (!text) return ''
   if (role === 'user') {
     return text.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
   }
-  // assistant 消息使用 markdown 渲染，表格由 LLM 通过 markdown 自然生成
-  return marked.parse(text) as string
+  return renderPreviewMarkdown(text)
 }
 
 /** 过滤图片：排除已在表格中出现的图片（按ID去重），确保每个图表只出现一次 */
@@ -265,8 +309,15 @@ function refTypeLabel(mediaType: string): string {
 }
 
 function askQuestion() {
-  const q = question.value.trim()
+  let q = question.value.trim()
   if (!q) return
+
+  // Append referenced file names to the question
+  if (mentionSelected.value.length > 0) {
+    const titles = mentionSelected.value.map(m => m.title).join(', ')
+    q += '\n\n[引用文件: ' + titles + ']'
+    mentionSelected.value = []
+  }
 
   asking.value = true
   messages.value.push({ role: 'user', content: q })
@@ -276,6 +327,59 @@ function askQuestion() {
     askWithStream(q)
   } else {
     askWithoutStream(q)
+  }
+}
+
+function handleInputChange(e: Event) {
+  const target = e.target as HTMLTextAreaElement
+  const val = target.value
+  const cursorPos = target.selectionStart || 0
+  // Detect @ trigger
+  const textBeforeCursor = val.substring(0, cursorPos)
+  const atMatch = textBeforeCursor.match(/@([^\s@]*)$/)
+  if (atMatch) {
+    mentionQuery.value = atMatch[1]
+    mentionVisible.value = true
+    if (mentionDocs.value.length === 0) {
+      loadMentionDocs()
+    }
+  } else {
+    mentionVisible.value = false
+    mentionQuery.value = ''
+  }
+}
+
+function selectMention(doc: any) {
+  // Remove the @query text from input
+  const textarea = inputRef.value
+  if (textarea) {
+    const cursorPos = textarea.selectionStart || 0
+    const val = question.value
+    const textBefore = val.substring(0, cursorPos)
+    const atIndex = textBefore.lastIndexOf('@')
+    if (atIndex >= 0) {
+      question.value = val.substring(0, atIndex) + val.substring(cursorPos)
+    }
+  }
+  // Add to selected mentions if not already present
+  if (!mentionSelected.value.some(m => m.id === doc.id)) {
+    mentionSelected.value.push({ id: doc.id, title: doc.title })
+  }
+  mentionVisible.value = false
+  mentionQuery.value = ''
+  nextTick(() => inputRef.value?.focus())
+}
+
+function removeMention(docId: number) {
+  mentionSelected.value = mentionSelected.value.filter(m => m.id !== docId)
+}
+
+async function loadMentionDocs() {
+  try {
+    const res = await getDocuments({ page: 1, pageSize: 100 })
+    mentionDocs.value = res.data.items || []
+  } catch (e) {
+    console.error('Failed to load mention docs', e)
   }
 }
 
@@ -317,7 +421,7 @@ function askWithStream(q: string) {
         messages.value[msgIndex].tables = meta.tables || []
         messages.value[msgIndex].images = meta.images || []
         if (meta.images?.length > 0) expandedImages.value.add(msgIndex)
-        if (result.sources?.length > 0) expandedRefs.value.add(msgIndex)
+        if (result.sources && result.sources.length > 0) expandedRefs.value.add(msgIndex)
       }
       asking.value = false
       loadSessions()
@@ -332,7 +436,7 @@ function askWithStream(q: string) {
 /** 非流式问答 */
 async function askWithoutStream(q: string) {
   try {
-    const res = await askQuestion({ question: q, sessionId: currentSessionId.value })
+    const res = await askQuestionApi({ question: q, sessionId: currentSessionId.value })
     const data = res.data
     messages.value.push({
       role: 'assistant',
@@ -391,10 +495,21 @@ async function loadSession(sessionId: string) {
         role: 'assistant',
         content: item.answer,
         confidence: item.confidence,
-        sources: [],
+        sources: parseSourcesString(item.sources),
       })
     }
   } catch (e) { console.error(e) }
+}
+
+/** 解析数据库中的来源字符串为数组 */
+function parseSourcesString(sourcesStr: string | undefined): Array<any> {
+  if (!sourcesStr) return []
+  try {
+    const parsed = JSON.parse(sourcesStr)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
 }
 
 async function deleteSession(sessionId: string) {
@@ -506,9 +621,13 @@ onMounted(async () => {
   min-width: 300px;
 }
 
+/* 助手回答包装器 */
+.answer-wrapper {
+  position: relative;
+}
+
 /* 助手回答文字 */
 .answer-text {
-  position: relative;
   background: #F8FAFC;
   border: 1px solid #E2E8F0;
   border-radius: 12px;
@@ -567,9 +686,124 @@ onMounted(async () => {
 
 .chat-input-area {
   display: flex;
-  gap: 8px;
-  padding: 12px;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 12px 16px;
   border-top: 1px solid #E2E8F0;
+  background: #FAFBFE;
+  border-radius: 0 0 8px 8px;
+}
+
+.mention-input-wrapper {
+  flex: 1;
+  position: relative;
+}
+
+.chat-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border: 1px solid #DBEAFE;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: none;
+  outline: none;
+  transition: border-color 0.2s;
+  min-height: 44px;
+  max-height: 120px;
+  overflow-y: auto;
+  line-height: 1.5;
+  background: #F8FAFC;
+  color: #1E293B;
+}
+
+.chat-textarea:focus {
+  border-color: #3B82F6;
+  background: white;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.chat-textarea:disabled {
+  background: #F1F5F9;
+  color: #94A3B8;
+  cursor: not-allowed;
+}
+
+.mention-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.mention-tag {
+  max-width: 200px;
+}
+
+.mention-dropdown {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #E2E8F0;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 1px solid #F1F5F9;
+}
+
+.mention-item:last-child {
+  border-bottom: none;
+}
+
+.mention-item:hover {
+  background: #EFF6FF;
+}
+
+.mention-icon {
+  color: #64748B;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.mention-title {
+  flex: 1;
+  font-size: 13px;
+  color: #1E293B;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mention-type {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+.mention-empty {
+  padding: 16px;
+  text-align: center;
+  color: #94A3B8;
+  font-size: 13px;
+}
+
+.input-actions {
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 2px;
 }
 
 /* 图片区域样式 */

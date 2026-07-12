@@ -30,8 +30,40 @@ public class DatabaseInitializer implements CommandLineRunner {
              Statement stmt = conn.createStatement()) {
             // 自动迁移：确保新列存在（MySQL 版本）
             migrateSchema(conn, stmt);
+            // 初始化缺失的系统配置项
+            initSettings(stmt);
         } catch (Exception e) {
             log.warn("DatabaseInitializer 执行失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 初始化缺失的系统配置项（幂等，INSERT IGNORE）
+     * 确保升级后新配置项自动写入已有数据库
+     */
+    private void initSettings(Statement stmt) {
+        String[][] settings = {
+                // LiteParse 本地文档解析引擎
+                {"liteparse_enabled", "true", "是否启用 LiteParse 本地文档解析引擎"},
+                {"liteparse_cli_path", "lit", "LiteParse CLI 可执行文件路径"},
+        };
+
+        int added = 0;
+        for (String[] s : settings) {
+            try {
+                int rows = stmt.executeUpdate(String.format(
+                        "INSERT IGNORE INTO settings (setting_key, value, description) VALUES ('%s', '%s', '%s')",
+                        s[0], s[1], s[2]));
+                if (rows > 0) {
+                    added++;
+                    log.info("Settings: added setting '{}'", s[0]);
+                }
+            } catch (Exception e) {
+                log.debug("Settings skip '{}': {}", s[0], e.getMessage());
+            }
+        }
+        if (added > 0) {
+            log.info("Settings init complete: added {} new settings", added);
         }
     }
 

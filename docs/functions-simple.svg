@@ -90,7 +90,7 @@
   <text x="750" y="135" text-anchor="middle" font-size="13" font-weight="bold" fill="white">信息库（四个子库）</text>
   <text x="600" y="158" text-anchor="middle" font-size="11" fill="#2D6A2D">研究报告库</text>
   <text x="700" y="158" text-anchor="middle" font-size="11" fill="#2D6A2D">动态信息库</text>
-  <text x="800" y="158" text-anchor="middle" font-size="11" fill="#2D6A2D">译丛译著库</text>
+  <text x="800" y="158" text-anchor="middle" font-size="11" fill="#2D6A2D">图书库</text>
   <text x="900" y="158" text-anchor="middle" font-size="11" fill="#2D6A2D">图表库</text>
   <text x="750" y="180" text-anchor="middle" font-size="10" fill="#64748B">上传 · 审核 · 分类 · 编辑 · 统一详情页</text>
 

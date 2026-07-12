@@ -17,6 +17,7 @@
       :loading="loadingDocs"
       @doc-click="handleDocClick"
       @upload-click="showUpload = true"
+      @delete-doc="handleDeleteDoc"
     />
 
     <!-- 上传新资料对话框 -->
@@ -35,7 +36,7 @@
           <el-select v-model="uploadForm.docType" style="width: 100%;">
             <el-option label="研究报告" value="report" />
             <el-option label="动态信息" value="dynamic" />
-            <el-option label="译丛译著" value="translation" />
+            <el-option label="图书" value="translation" />
             <el-option label="图表" value="chart" />
           </el-select>
         </el-form-item>
@@ -145,15 +146,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { UploadFilled, Loading, FolderOpened } from '@element-plus/icons-vue'
-import { getKnowledgeEntries, getDocuments, uploadFile, getDocFileUrl } from '../../api'
-import { ElMessage } from 'element-plus'
+import { getKnowledgeEntries, getDocuments, uploadFile, getDocFileUrl, deleteDocument } from '../../api'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { isTauri, openFileAsFiles, DOC_FILTERS, sendNotification } from '../../composables/useTauri'
 import HeroBanner from '../../components/HeroBanner.vue'
 import WikiEntries from '../../components/WikiEntries.vue'
 import DocLibrary from '../../components/DocLibrary.vue'
 import WikiDetailDialog from '../../components/WikiDetailDialog.vue'
+import { getLibraryLabel } from '../../utils/libraryLabels'
 
 const isTauriEnv = isTauri()
 
@@ -211,10 +213,10 @@ const uploadProgress = reactive({
 })
 
 const libraries = [
-  { key: 'report', name: '研究报告库' },
-  { key: 'dynamic', name: '动态信息库' },
-  { key: 'translation', name: '译丛译著库' },
-  { key: 'chart', name: '图表库' },
+  { key: 'report', name: getLibraryLabel('report') },
+  { key: 'dynamic', name: getLibraryLabel('dynamic') },
+  { key: 'translation', name: getLibraryLabel('translation') },
+  { key: 'chart', name: getLibraryLabel('chart') },
 ]
 
 // --- API: 加载词条 ---
@@ -307,6 +309,26 @@ function handleDocClick(doc: any) {
     window.open(targetUrl, '_blank')
   } else {
     window.open(getDocFileUrl(doc.id), '_blank')
+  }
+}
+
+async function handleDeleteDoc(id: number) {
+  try {
+    await ElMessageBox.confirm('删除资料将同时移除其所有关联词条，确定继续？', '确认删除', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+    })
+  } catch {
+    return
+  }
+  try {
+    const res = await deleteDocument(id)
+    const data = res.data
+    ElMessage.success(`已删除，同步移除 ${data.deleted_entries ?? 0} 个关联词条`)
+    await Promise.all([loadDocStats(), loadEntries()])
+  } catch (e: any) {
+    ElMessage.error('删除失败: ' + (e.message || '未知错误'))
   }
 }
 

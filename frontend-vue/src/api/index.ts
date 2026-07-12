@@ -194,7 +194,7 @@ export function askQuestionStream(
   data: { question: string; sessionId?: string },
   onMeta: (meta: any) => void,
   onDelta: (text: string) => void,
-  onDone: (result: { answer: string; confidence: number }) => void,
+  onDone: (result: { answer: string; confidence: number; sources?: Array<any>; tables?: Array<any>; images?: Array<any> }) => void,
   onError?: (error: string) => void
 ) {
   const baseUrl = isTauri ? 'http://localhost:8080/api' : '/api'

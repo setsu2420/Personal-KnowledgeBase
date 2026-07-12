@@ -20,6 +20,7 @@
         <div v-for="lib in libraries" :key="lib.key" class="lib-row">
           <div class="lib-row-header">
             <span class="lib-row-name">{{ lib.name }}</span>
+            <el-badge :value="docList[lib.key]?.length || 0" class="lib-count-badge" />
           </div>
           <div class="lib-row-body">
             <template v-if="lib.key === 'chart'">
@@ -71,18 +72,51 @@
                   :style="{ animationDelay: (docIndex % 20) * 0.04 + 's' }"
                   @click="$emit('docClick', doc)"
                 >
-                  <el-icon class="doc-file-icon"><Document /></el-icon>
-                  <span class="doc-title-link" :title="doc.title">{{ doc.title }}</span>
-                  <span
-                    class="doc-type-tag"
-                    :style="getFileTypeStyle(getFileType(doc))"
-                  >
-                    {{ getFileType(doc) }}
-                  </span>
-                  <span class="doc-time-label">{{ doc.uploadTime }}</span>
+                  <div class="doc-type-badge" :class="getFileExt(doc.title).toLowerCase()">
+                    {{ getFileExt(doc.title) }}
+                  </div>
+                  <div class="doc-item-main">
+                    <span class="doc-title-link" :title="doc.title">{{ doc.title }}</span>
+                    <div class="doc-item-meta">
+                      <span class="doc-time">{{ doc.uploadTime }}</span>
+                      <el-tag
+                        size="small"
+                        :type="getStatusType(doc.status)"
+                        effect="light"
+                        class="status-tag"
+                      >
+                        {{ getStatusLabel(doc.status) }}
+                      </el-tag>
+                    </div>
+                  </div>
+                  <div class="doc-item-actions">
+                    <el-button
+                      v-if="pendingDeleteId === doc.id"
+                      type="danger"
+                      size="small"
+                      plain
+                      @click.stop="confirmDelete(doc)"
+                    >
+                      确认
+                    </el-button>
+                    <el-button
+                      v-else
+                      size="small"
+                      text
+                      type="danger"
+                      @click.stop="armDelete(doc.id)"
+                      class="doc-delete-btn"
+                    >
+                      <el-icon><Delete /></el-icon>
+                    </el-button>
+                  </div>
                 </div>
               </div>
-              <div v-else class="doc-empty">暂无上传文档</div>
+              <div v-else class="doc-empty">
+                <el-icon size="24" color="#CBD5E1"><Upload /></el-icon>
+                <div>暂无上传文档</div>
+                <div style="font-size: 11px; margin-top: 4px;">可拖拽文件到页面任意位置上传</div>
+              </div>
             </template>
           </div>
         </div>
@@ -92,21 +126,42 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Document } from '@element-plus/icons-vue'
+import { computed, ref, watch } from 'vue'
+import { Delete, Upload } from '@element-plus/icons-vue'
 import { getDocFileUrl } from '../api'
 import { marked } from 'marked'
 import SkeletonLoader from './SkeletonLoader.vue'
+import { getLibraryLabel } from '../utils/libraryLabels'
 
 const props = defineProps<{
   docList: Record<string, any[]>
   loading: boolean
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   docClick: [doc: any]
   uploadClick: []
+  deleteDoc: [id: number]
 }>()
+
+// Two-stage delete: first click arms, second click confirms
+const pendingDeleteId = ref<number | null>(null)
+
+// Auto-disarm after 3 seconds
+watch(pendingDeleteId, (val) => {
+  if (val !== null) {
+    setTimeout(() => { pendingDeleteId.value = null }, 3000)
+  }
+})
+
+function armDelete(id: number) {
+  pendingDeleteId.value = id
+}
+
+function confirmDelete(doc: any) {
+  pendingDeleteId.value = null
+  emit('deleteDoc', doc.id)
+}
 
 // 计算属性：将图表库拆分为图片和表格
 const chartImageItems = computed(() => {
@@ -125,54 +180,39 @@ marked.setOptions({
 })
 
 const libraries = [
-  { key: 'report', name: '研究报告库' },
-  { key: 'dynamic', name: '动态信息库' },
-  { key: 'translation', name: '译丛译著库' },
-  { key: 'chart', name: '图表库' },
+  { key: 'report', name: getLibraryLabel('report') },
+  { key: 'dynamic', name: getLibraryLabel('dynamic') },
+  { key: 'translation', name: getLibraryLabel('translation') },
+  { key: 'policy', name: getLibraryLabel('policy') },
+  { key: 'news', name: getLibraryLabel('news') },
+  { key: 'chart', name: getLibraryLabel('chart') },
 ]
 
-function getFileType(doc: any): string {
-  if (!doc) return 'TXT'
-  if (doc.url || (doc.title && (doc.title.startsWith('http://') || doc.title.startsWith('https://')))) {
-    return 'LINK'
+function getFileExt(title: string): string {
+  if (!title) return 'FILE'
+  const lastDot = title.lastIndexOf('.')
+  if (lastDot > 0) {
+    const ext = title.substring(lastDot + 1).toUpperCase()
+    return ext.length <= 4 ? ext : ext.substring(0, 4)
   }
-  if (!doc.title) return 'TXT'
-  const parts = doc.title.split('.')
-  if (parts.length > 1) {
-    const ext = parts[parts.length - 1].toUpperCase()
-    if (ext === 'HTML' && doc.url) return 'LINK'
-    return ext
-  }
-  if (doc.filePath) {
-    const fParts = doc.filePath.split('.')
-    return fParts[fParts.length - 1].toUpperCase()
-  }
-  return 'TXT'
+  return 'FILE'
 }
 
-function getFileTypeStyle(type: string) {
-  const t = (type || '').toUpperCase()
-  switch (t) {
-    case 'PDF':
-      return { color: '#ef4444', backgroundColor: '#fef2f2', border: '1px solid #fee2e2' }
-    case 'DOC':
-    case 'DOCX':
-      return { color: '#3b82f6', backgroundColor: '#eff6ff', border: '1px solid #dbeafe' }
-    case 'XLS':
-    case 'XLSX':
-    case 'CSV':
-      return { color: '#10b981', backgroundColor: '#ecfdf5', border: '1px solid #d1fae5' }
-    case 'PPT':
-    case 'PPTX':
-      return { color: '#f59e0b', backgroundColor: '#fffbeb', border: '1px solid #fef3c7' }
-    case 'TXT':
-    case 'MD':
-    case 'MARKDOWN':
-      return { color: '#6b7280', backgroundColor: '#f9fafb', border: '1px solid #f3f4f6' }
-    case 'LINK':
-      return { color: '#8b5cf6', backgroundColor: '#f5f3ff', border: '1px solid #ddd6fe' }
-    default:
-      return { color: '#6366f1', backgroundColor: '#eef2ff', border: '1px solid #e0e7ff' }
+function getStatusType(status: string): string {
+  switch (status) {
+    case 'extracted': return 'success'
+    case 'processing': return 'warning'
+    case 'failed': return 'danger'
+    default: return 'info'
+  }
+}
+
+function getStatusLabel(status: string): string {
+  switch (status) {
+    case 'extracted': return '已解析'
+    case 'processing': return '解析中'
+    case 'failed': return '失败'
+    default: return '未解析'
   }
 }
 
@@ -221,6 +261,12 @@ function renderTablePreview(markdown: string): string {
   background: linear-gradient(180deg, var(--color-bg-secondary), var(--color-primary-light));
   padding: 12px 18px;
   border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.lib-count-badge {
+  margin-left: 8px;
 }
 .lib-row-name {
   font-size: 14px;
@@ -320,35 +366,97 @@ function renderTablePreview(markdown: string): string {
   border-color: #BFDBFE;
   transform: translateX(2px);
 }
-.doc-file-icon {
-  font-size: 16px;
-  color: var(--color-text-secondary);
+.doc-type-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: #E2E8F0;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+  border: 1px solid #CBD5E1;
+  text-transform: uppercase;
+}
+.doc-type-badge.pdf {
+  background: #FEE2E2;
+  color: #DC2626;
+  border-color: #FCA5A5;
+}
+.doc-type-badge.docx, .doc-type-badge.doc {
+  background: #DBEAFE;
+  color: #2563EB;
+  border-color: #93C5FD;
+}
+.doc-type-badge.xlsx, .doc-type-badge.xls, .doc-type-badge.csv {
+  background: #D1FAE5;
+  color: #059669;
+  border-color: #6EE7B7;
+}
+.doc-type-badge.pptx, .doc-type-badge.ppt {
+  background: #FFEDD5;
+  color: #D97706;
+  border-color: #FDBA74;
+}
+.doc-type-badge.md, .doc-type-badge.txt {
+  background: #F3E8FF;
+  color: #9333EA;
+  border-color: #D8B4FE;
+}
+.doc-item-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 .doc-title-link {
-  flex: 1;
-  font-size: 13px;
-  font-weight: 500;
-  color: #334155;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1E293B;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.doc-type-tag {
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
-  text-transform: uppercase;
+.doc-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
-.doc-time-label {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
+.doc-time {
+  font-size: 12px;
+  color: #64748B;
+}
+.status-tag {
+  height: 18px;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 16px;
+}
+.doc-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.doc-delete-btn {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.doc-list-item:hover .doc-delete-btn {
+  opacity: 1;
 }
 .doc-empty {
   font-size: 13px;
   color: var(--color-text-tertiary);
   text-align: center;
-  padding: 8px 0;
+  padding: 16px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 .table-preview-mini {
   flex: 1;

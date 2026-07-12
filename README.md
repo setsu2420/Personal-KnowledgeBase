@@ -1,138 +1,276 @@
-# 智能情报分析平台
+# Intelligent Intelligence Analysis Platform
 
-> 基于知识图谱 + RAG 的多模态智能情报分析系统
+<p align="center">
+  <strong>A specialized intelligent intelligence analysis platform for unmanned systems research.</strong><br>
+  Upload documents, build knowledge graphs, intelligent Q&A — all powered by LLMs.
+</p>
 
-## 功能概览
+<p align="center">
+  <a href="#what-is-this">What is this?</a> •
+  <a href="#features">Features</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#tech-stack">Tech Stack</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#credits">Credits</a> •
+  <a href="#license">License</a>
+</p>
 
-- **智能问答** - 基于知识图谱的智能问答，支持图片/表格多模态回答
-- **深度研究** - 多轮流式深度研究，自动生成研究报告
-- **知识图谱** - 实体关系图谱可视化
-- **词条百科** - 结构化知识库管理
-- **图表库** - 图片和表格统一管理
-- **文档管理** - PDF/Word/PPT/Excel 文档解析与知识提取
+<p align="center">
+  English | <a href="README_CN.md">中文</a>
+</p>
 
-## 技术栈
+---
 
-| 层级 | 技术 |
-|------|------|
-| 前端 | Vue 3 + TypeScript + Element Plus + Vite |
-| 后端 | Spring Boot 4.1 + JDK 21 + MyBatis-Plus |
-| 数据库 | MySQL 8.0 |
-| 向量检索 | 自研轻量向量索引（BGE-M3 Embedding） |
-| LLM | 可配置（DeepSeek / SiliconFlow / OpenAI 兼容） |
-| 部署 | Docker + Docker Compose |
+## Features
 
-## 快速开始
+- **Graph-RAG Intelligent Q&A** — Knowledge graph-based retrieval-augmented generation with semantic search, cross-document verification, source traceability, and confidence scoring
+- **Deep Research** — Multi-step reasoning with cross-source synthesis, process visualization, for systematic research on complex topics
+- **Multi-format Document Management** — Support PDF/Word/Excel/Image(OCR)/Text uploads with automatic structure recognition and key information extraction
+- **4-Signal Knowledge Graph** — Direct links, source overlap, Adamic-Adar, and keyword overlap — four-dimensional relevance model
+- **Louvain Community Detection** — Automatic knowledge cluster discovery with cohesion scoring
+- **Contradiction Detection** — Auto-identify contradictory conclusions and data inconsistencies across sources, graded by severity
+- **Dual-Space Architecture** — Front-end analysis workspace and back-end management workspace separated, shared data, isolated permissions
+- **Project Isolation** — Multi-project support with independent knowledge bases and cross-project switching
+- **Local-First** — All data stored in local database, no external cloud dependencies, works offline
+- **Vector Semantic Search** — FAISS-based embedding retrieval, supports any OpenAI-compatible endpoint
+- **Desktop Application** — Tauri 2 native desktop app with system tray, global shortcuts, auto-update
 
-### 方式一：Docker 一键部署（推荐）
+## What is this?
 
-**前置要求**：Docker 20.10+ 和 Docker Compose 2.0+
+The Intelligent Intelligence Analysis Platform is a specialized desktop application for **unmanned systems (UAV/UGV/USV/UUV) researchers and analysts**. It automatically transforms your documents into an organized, interlinked knowledge base — unlike traditional RAG (retrieve-and-answer from scratch every time), this system **incrementally builds and maintains structured knowledge entries**. Knowledge is compiled once and kept current, not re-derived on every query.
+
+This project is based on [Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) and inspired by [LLM Wiki](https://github.com/nashsu/llm_wiki). We implemented the core ideas as a full-stack desktop application with significant enhancements in specialized document management and analysis.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  Frontend (Vue 3 + Element Plus)         │
+│  ┌──────────────┐     ┌──────────────────────────────┐  │
+│  │   Frontend   │     │         Backend              │  │
+│  │  (Analysis)  │     │      (Management)            │  │
+│  │  Wiki, Q&A,  │     │  Dashboard, Sources,         │  │
+│  │  Deep Research│     │  Charts, Graph, Config...    │  │
+│  └──────┬───────┘     └──────────┬───────────────────┘  │
+└─────────┼────────────────────────┼──────────────────────┘
+          │    REST API (HTTP)     │
+┌─────────┼────────────────────────┼──────────────────────┐
+│         ▼                        ▼                      │
+│              Backend (Spring Boot 4.1)                  │
+│  ┌─────────────┐  ┌──────────┐  ┌───────────┐  ┌────┐ │
+│  │  LLM Service│  │  Vector  │  │  Document │  │Graph│ │
+│  │  (Chat/     │  │  Search  │  │  Upload   │  │Svc  │ │
+│  │   Embed)    │  │  (FAISS) │  │  Service  │  │     │ │
+│  └──────┬──────┘  └────┬─────┘  └─────┬─────┘  └──┬─┘ │
+│         │              │              │             │   │
+│  ┌──────▼──────────────▼──────────────▼─────────────▼┐  │
+│  │           MySQL 8.0 Database                      │  │
+│  └──────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
+          │
+          ▼
+   External LLM APIs
+   (DeepSeek, SiliconFlow, OpenAI, etc.)
+```
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Desktop | Tauri 2 (Rust backend + Spring Boot sidecar) |
+| Frontend | Vue 3.5 + Element Plus 2.14 + TypeScript + Vite |
+| Backend | Spring Boot 4.1 + MyBatis-Plus 3.5 + Java 25 |
+| Database | MySQL 8.0 |
+| AI / LLM | OpenAI-compatible API (DeepSeek, SiliconFlow, OpenAI, etc.) |
+| Vector Embedding | SiliconFlow Embedding API (BGE-M3) |
+| Vector Search | Custom lightweight vector index (FAISS-compatible) |
+| Graph Visualization | ECharts (force-directed layout) |
+| State Management | Pinia |
+| Deployment | Docker + Docker Compose |
+
+## Quick Start
+
+### Option 1: Docker (Recommended)
+
+**Prerequisites**: Docker 20.10+ and Docker Compose 2.0+
 
 ```bash
-# 克隆项目
 git clone https://github.com/setsu2420/Personal-KnowledgeBase.git
 cd Personal-KnowledgeBase
-
-# 一键部署
 chmod +x load-and-run.sh
 ./load-and-run.sh
 ```
 
-部署完成后访问 http://localhost
+Visit http://localhost after deployment.
 
-### 方式二：本地开发
+### Option 2: Local Development
 
-**前置要求**：JDK 21+、Node.js 20+、MySQL 8.0
+**Prerequisites**: JDK 21+, Node.js 20+, MySQL 8.0
 
 ```bash
-# 1. 创建数据库
+# 1. Create database
 mysql -u root -e "CREATE DATABASE intelligence_platform CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
-# 2. 初始化表结构
+# 2. Initialize schema
 mysql -u root intelligence_platform < init-db/01-schema.sql
 mysql -u root intelligence_platform < init-db/02-init-data.sql
 
-# 3. 启动后端
+# 3. Start backend
 cd backend-springboot
 ./mvnw spring-boot:run
 
-# 4. 启动前端（新终端）
+# 4. Start frontend (new terminal)
 cd frontend-vue
 npm install
 npm run dev
 ```
 
-访问 http://localhost:5173
+Visit http://localhost:5173
 
-## 项目结构
+## Core Features In-Depth
+
+### 1. Graph-RAG Intelligent Q&A
+
+Unlike traditional RAG that retrieves from scratch for every query, this system uses knowledge graph-based retrieval:
 
 ```
-├── backend-springboot/          # 后端 Spring Boot 应用
+Phase 1: Semantic Retrieval
+  - FAISS vector index for fast ANN search
+  - Chinese CJK tokenization + English stop word filtering
+  - Title match bonus (+10 score)
+
+Phase 2: Graph Expansion
+  - 4-signal relevance model for related pages
+  - 2-hop traversal with decay
+
+Phase 3: Context Assembly
+  - Numbered pages with full content
+  - LLM cites sources by number: [1], [2], etc.
+  - Confidence scoring and cross-document verification
+```
+
+### 2. Knowledge Graph
+
+4-signal relevance model visualized via ECharts force-directed layout:
+
+| Signal | Weight | Description |
+|--------|--------|-------------|
+| Direct Link | ×3.0 | Pages linked directly |
+| Source Overlap | ×4.0 | Pages sharing the same source document |
+| Adamic-Adar | ×1.5 | Pages sharing common neighbors |
+| Keyword Overlap | ×1.0 | Keyword intersection |
+
+Features: Louvain community detection, cohesion scoring, graph insights (bridge nodes, isolated pages), type/community coloring toggle.
+
+### 3. Deep Research
+
+When knowledge gaps are identified:
+- Multi-step LLM reasoning with progress visualization
+- Cross-source synthesis and verification
+- Auto-generated structured research reports
+- Auto-ingest results into knowledge base
+
+### 4. Contradiction Detection
+
+- Auto-identify conflicting conclusions across sources
+- Data inconsistency detection (numbers, dates, etc.)
+- Severity-based classification (High/Medium/Low)
+- Research direction suggestions based on existing knowledge
+
+### 5. Multi-format Document Support
+
+| Format | Method |
+|--------|--------|
+| PDF | Apache PDFBox parsing, structure recognition |
+| Word (DOCX) | Apache POI parsing, preserves headings/bold/lists/tables |
+| Excel (XLSX) | Apache POI parsing, multi-sheet support |
+| Images | Tesseract OCR + VLM vision model |
+| Text/Markdown | Direct reading, UTF-8 encoding |
+
+### 6. Desktop Application (Tauri 2)
+
+- **System Tray** — Show/hide window, restart backend, open data directory, quit
+- **Backend Monitor** — Tri-color status indicator (green/yellow/red), JVM memory details
+- **Splash Screen** — Tech-themed logo animation + loading state, 30s timeout detection
+- **Global Shortcuts** — Cmd/Ctrl+Q quit, Cmd/Ctrl+W hide, Cmd/Ctrl+, settings
+- **First-run Wizard** — LLM API key setup, data directory selection, sample project creation
+- **Auto-update** — Built-in Tauri updater from GitHub Releases
+- **Error Handling** — Global ErrorBoundary with friendly messages, auto-retry (up to 3x)
+- **Single Instance** — Prevents duplicate launches, focuses existing window
+
+## Project Structure
+
+```
+├── backend-springboot/          # Spring Boot backend
 │   ├── src/main/java/
 │   │   └── com/intelligence/platform/
-│   │       ├── controller/      # REST API 控制器
-│   │       ├── service/         # 业务逻辑层
-│   │       ├── config/          # 配置类
-│   │       └── entity/          # 数据实体
+│   │       ├── controller/      # REST API controllers
+│   │       ├── service/         # Business logic layer
+│   │       ├── config/          # Configuration classes
+│   │       ├── entity/          # Data entities
+│   │       └── mapper/          # MyBatis-Plus mappers
 │   ├── pom.xml
 │   └── Dockerfile
-├── frontend-vue/                # 前端 Vue 3 应用
+├── frontend-vue/                # Vue 3 frontend
 │   ├── src/
-│   │   ├── views/               # 页面视图
-│   │   ├── components/          # 公共组件
-│   │   ├── api/                 # API 调用层
-│   │   └── composables/         # 组合式函数
+│   │   ├── views/               # Page views
+│   │   ├── components/          # Shared components
+│   │   ├── api/                 # API layer
+│   │   ├── composables/         # Vue composables
+│   │   ├── router/              # Vue Router
+│   │   └── store/               # Pinia store
 │   ├── Dockerfile
 │   └── nginx.conf
-├── init-db/                     # 数据库初始化脚本
-├── docker-compose.yml           # Docker 编排配置
-├── load-and-run.sh              # 一键部署脚本
-└── package-delivery.sh          # 交付包构建脚本
+├── src-tauri/                   # Tauri 2 desktop shell
+│   ├── src/                     # Rust backend
+│   ├── icons/                   # App icons
+│   └── tauri.conf.json
+├── init-db/                     # Database init scripts
+├── scripts/                     # Build & utility scripts
+├── config/                      # Application configuration
+├── docs/                        # Documentation
+├── docker-compose.yml           # Docker orchestration
+├── load-and-run.sh              # One-click deploy script
+└── package-delivery.sh          # Delivery package builder
 ```
 
-## 核心功能
+## Configuration
 
-### 智能问答
+### LLM Configuration
 
-- 基于知识图谱 + 向量检索的 RAG 问答
-- 流式回答，实时显示生成过程
-- 自动嵌入相关表格（Markdown 格式）
-- 展示相关图片，按分数排序
-- 支持会话历史管理
-- 一键复制回答内容
+Configure via Backend → System Settings → LLM Config:
 
-### 深度研究
+- **Chat Model**: DeepSeek-Chat / GPT-4 / any OpenAI-compatible endpoint
+- **Embedding Model**: BGE-M3 / text-embedding-ada-002
+- **Vision Model**: For image understanding and table OCR
 
-- 多轮流式研究，实时显示进度
-- 自动生成结构化研究报告
-- 支持引用来源追溯
+### Environment Variables
 
-### 文档处理
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `MYSQL_ROOT_PASSWORD` | MySQL root password | `intel2026secure` |
+| `MYSQL_DATABASE` | Database name | `intelligence_platform` |
+| `JAVA_OPTS` | JVM arguments | `-Xms512m -Xmx2g` |
+| `SPRING_PROFILES_ACTIVE` | Spring profile | `production` |
 
-- 支持 PDF、Word、PPT、Excel 格式
-- OCR 识别图片中的表格
-- VLM 视觉语言模型辅助理解
-- 自动提取知识词条
+## Comparison with LLM Wiki
 
-## 配置
+| Aspect | LLM Wiki | This Platform |
+|--------|----------|---------------|
+| Positioning | General personal knowledge base | Specialized intelligence platform for unmanned systems |
+| Architecture | Single app (Tauri + React) | Dual app (Spring Boot + Vue 3 + Tauri) |
+| Database | File-system Wiki | MySQL + MyBatis-Plus ORM |
+| Frontend | React + shadcn/ui | Vue 3 + Element Plus |
+| Document Types | Markdown, web pages | PDF, Word, Excel, Images(OCR), Text |
+| Knowledge Format | Wiki pages (YAML frontmatter) | Structured entries + classification system |
+| Project Model | Single wiki | Multi-project isolation |
+| Graph Visualization | sigma.js | ECharts |
+| Unique Features | Web clipper, Obsidian compatibility | Contradiction detection, research direction suggestions, report generation |
 
-### LLM 配置
+## Credits
 
-通过管理后台 → LLM配置 页面设置：
+This project is based on [Andrej Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) and heavily inspired by [nashsu/llm_wiki](https://github.com/nashsu/llm_wiki). We extend the core ideas into a specialized platform for unmanned systems research with a focus on multi-format document processing, structured knowledge extraction, and cross-document intelligence analysis.
 
-- **对话模型**：DeepSeek-Chat / GPT-4 / 其他 OpenAI 兼容接口
-- **Embedding 模型**：BGE-M3 / text-embedding-ada-002
-- **视觉模型**：用于图片理解和表格 OCR
-
-### 环境变量
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `MYSQL_ROOT_PASSWORD` | MySQL root 密码 | `intel2026secure` |
-| `MYSQL_DATABASE` | 数据库名 | `intelligence_platform` |
-| `JAVA_OPTS` | JVM 参数 | `-Xms512m -Xmx2g` |
-| `SPRING_PROFILES_ACTIVE` | Spring 环境 | `production` |
-
-## 许可证
+## License
 
 MIT License

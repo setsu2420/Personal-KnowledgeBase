@@ -17,7 +17,7 @@
           <el-option label="全部" value="" />
           <el-option label="研究报告" value="report" />
           <el-option label="动态信息" value="dynamic" />
-          <el-option label="译丛译著" value="translation" />
+          <el-option label="图书" value="translation" />
           <el-option label="图表" value="chart" />
         </el-select>
       </div>

@@ -15,7 +15,7 @@
           </template>
           <el-menu-item index="/admin/info-dynamic">动态信息</el-menu-item>
           <el-menu-item index="/admin/reports">研究报告</el-menu-item>
-          <el-menu-item index="/admin/translations">译丛译著</el-menu-item>
+          <el-menu-item index="/admin/translations">图书</el-menu-item>
           <el-menu-item index="/admin/charts">图表</el-menu-item>
         </el-sub-menu>
 

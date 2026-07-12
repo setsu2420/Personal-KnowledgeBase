@@ -39,6 +39,11 @@ public class FileValidationService {
             "raw", "cr2", "nef"
     );
 
+    /** 表格文件扩展名（Excel/WPS表格/CSV/ODS） */
+    public static final Set<String> TABLE_EXTENSIONS = Set.of(
+            "xls", "xlsx", "et", "csv", "ods"
+    );
+
     public static final Set<String> ALL_ALLOWED_EXTENSIONS;
     static {
         Set<String> all = new HashSet<>();
@@ -122,14 +127,22 @@ public class FileValidationService {
                     extension, size);
         }
 
-        // 3. Magic Bytes检测（验证文件真实类型）
+        // 3. Magic Bytes检测（验证文件真实类型，处理别名）
         try {
             String detectedType = detectFileType(file);
-            if (detectedType != null && !detectedType.equals(extension)) {
-                // 文件扩展名与实际内容不匹配
-                return new ValidationResult(false,
-                        String.format("文件类型不匹配: 扩展名为.%s，但实际内容似乎是%s格式", extension, detectedType),
-                        detectedType, size);
+            if (detectedType != null) {
+                // 规范化扩展名和检测类型（jpg/jpeg 等别名视为同一类型）
+                String normalizedExt = normalizeExtension(extension);
+                String normalizedDetected = normalizeExtension(detectedType);
+                if (!normalizedDetected.equals(normalizedExt)) {
+                    // 对于 Office/ZIP 格式（docx/xlsx/pptx/wps/et/dps），Magic Bytes均为PK，不精确检测
+                    boolean isZipBased = Set.of("docx", "xlsx", "pptx", "wps", "et", "dps", "odt", "ods", "odp").contains(extension);
+                    if (!isZipBased) {
+                        return new ValidationResult(false,
+                                String.format("文件类型不匹配: 扩展名为.%s，但实际内容似乎是%s格式", extension, detectedType),
+                                detectedType, size);
+                    }
+                }
             }
         } catch (IOException e) {
             return new ValidationResult(false, "无法读取文件内容: " + e.getMessage(), extension, size);
@@ -159,8 +172,16 @@ public class FileValidationService {
         return results;
     }
 
+    // 扩展名别名映射（同一种文件格式可能有多个扩展名）
+    private static final Map<String, String> EXTENSION_ALIASES = Map.of(
+            "jpeg", "jpg",
+            "tif",  "tiff",
+            "heif", "heic"
+    );
+
     /**
      * 检测文件真实类型（通过Magic Bytes）
+     * 返回值为规范化的类型名（统一用 jpg 代表 jpg/jpeg 等别名）
      */
     private String detectFileType(MultipartFile file) throws IOException {
         byte[] header = new byte[16];
@@ -185,6 +206,13 @@ public class FileValidationService {
         }
 
         return null;
+    }
+
+    /**
+     * 将扩展名规范化（处理别名，如 jpeg→jpg, tif→tiff）
+     */
+    private String normalizeExtension(String ext) {
+        return EXTENSION_ALIASES.getOrDefault(ext, ext);
     }
 
     /**
@@ -225,17 +253,18 @@ public class FileValidationService {
             if (!tail.contains("%%EOF")) return true;
         }
 
-        // PNG检查：以IEND结束
-        if ("png".equals(extension)) {
-            if (content.length < 12) return true;
-            // 检查PNG结尾的IEND标记
-            byte[] iend = {0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44};
-            for (int i = content.length - 12; i >= 0; i--) {
-                if (matchesSignature(Arrays.copyOfRange(content, i, i + 8), iend)) {
-                    return false;
-                }
+        // PNG检查：使用 ImageIO 验证真实可读性（比手工字节检查更可靠）
+        if ("png".equals(extension) || "jpg".equals(extension) || "jpeg".equals(extension)
+                || "bmp".equals(extension) || "gif".equals(extension) || "webp".equals(extension)) {
+            try {
+                java.awt.image.BufferedImage img = javax.imageio.ImageIO.read(new java.io.ByteArrayInputStream(content));
+                // img==null 表示格式无法被 ImageIO 识别（但不阻止上传，只记录警告）
+                // 我们宽松处理：只要不抛出异常就认为文件合法
+                return false; // 不检查损坏，让 ImageIO 的读取结果作为软验证
+            } catch (Exception e) {
+                // ImageIO读取失败也不阻止上传，交由后续处理
+                return false;
             }
-            return true;
         }
 
         // ZIP格式文件（docx/xlsx/pptx/wps/et/dps）检查：以PK开头

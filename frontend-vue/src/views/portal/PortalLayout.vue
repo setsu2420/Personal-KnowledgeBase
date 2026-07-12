@@ -1,5 +1,21 @@
 <template>
-  <div class="portal-app">
+  <div
+    class="portal-app"
+    @dragenter.prevent="onGlobalDragEnter"
+    @dragover.prevent="onGlobalDragOver"
+    @dragleave.prevent="onGlobalDragLeave"
+    @drop.prevent="onGlobalDrop"
+  >
+    <!-- 全局拖拽覆盖层 -->
+    <Transition name="drop-overlay">
+      <div v-if="globalDragging" class="global-drop-overlay">
+        <div class="global-drop-content">
+          <div class="drop-icon">📁</div>
+          <h2>释放文件即可上传</h2>
+          <p>支持 PDF、Word、Excel、PPT、图片、TXT、Markdown 等格式</p>
+        </div>
+      </div>
+    </Transition>
     <!-- 顶部栏 -->
     <div class="top-bar">
       <span class="title">前台 — 分析工作空间</span>
@@ -60,10 +76,8 @@
     </div>
 
     <!-- 内容区 -->
-    <div v-if="currentProjectId" class="tab-content" :key="currentProjectId">
-      <keep-alive>
-        <component :is="activeTabComponent" />
-      </keep-alive>
+    <div v-if="currentProjectId" class="tab-content" :key="currentProjectId + '-' + activeTab">
+      <component :is="activeTabComponent" :key="currentProjectId" />
     </div>
 
     <!-- 新建项目对话框 -->
@@ -93,6 +107,7 @@ import BackendStatus from '../../components/BackendStatus.vue'
 import Home from './Home.vue'
 import SmartQA from './SmartQA.vue'
 import DeepResearch from './DeepResearch.vue'
+import Upload from './Upload.vue'
 
 interface Project {
   id: number
@@ -106,6 +121,7 @@ const tabs = [
   { key: 'home', label: '首页' },
   { key: 'qa', label: '智能问答' },
   { key: 'research', label: '深度研究' },
+  { key: 'upload', label: '资料上传' },
 ]
 
 const activeTab = ref('home')
@@ -127,12 +143,51 @@ const activeTabComponent = computed(() => {
     case 'home': return Home
     case 'qa': return SmartQA
     case 'research': return DeepResearch
+    case 'upload': return Upload
     default: return Home
   }
 })
 
 function switchTab(key: string) {
   activeTab.value = key
+}
+
+// === 全局拖拽上传 ===
+const globalDragging = ref(false)
+let dragCounter = 0  // Track nested dragenter/dragleave
+
+function onGlobalDragEnter(e: DragEvent) {
+  const types = e.dataTransfer?.types || []
+  if (types.includes('Files')) {
+    dragCounter++
+    globalDragging.value = true
+  }
+}
+
+function onGlobalDragOver(e: DragEvent) {
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = 'copy'
+  }
+}
+
+function onGlobalDragLeave() {
+  dragCounter--
+  if (dragCounter <= 0) {
+    dragCounter = 0
+    globalDragging.value = false
+  }
+}
+
+function onGlobalDrop(e: DragEvent) {
+  dragCounter = 0
+  globalDragging.value = false
+  const files = e.dataTransfer?.files
+  if (!files || files.length === 0) return
+  // 如果当前不在上传页，切换过去
+  if (activeTab.value !== 'upload') {
+    activeTab.value = 'upload'
+    ElMessage.success(`已切换到上传页，可在上传页里搜集并上传这 ${files.length} 个文件`)
+  }
 }
 
 function selectProject() {
@@ -310,5 +365,68 @@ onMounted(loadProjects)
 .admin-btn:hover {
   color: #fff;
   background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* 全局拖拽覆盖层 */
+.global-drop-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border: 4px dashed #3B82F6;
+  margin: 16px;
+  border-radius: 16px;
+  pointer-events: none;
+}
+
+.global-drop-content {
+  text-align: center;
+  color: #1E3A8A;
+}
+
+.global-drop-content .drop-icon {
+  font-size: 80px;
+  margin-bottom: 24px;
+  animation: bounce 1.5s infinite;
+}
+
+.global-drop-content h2 {
+  font-size: 28px;
+  margin: 0 0 12px;
+  font-weight: 700;
+}
+
+.global-drop-content p {
+  font-size: 16px;
+  color: #4B5563;
+  margin: 0;
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-15px);
+  }
+}
+
+/* Transition for overlay */
+.drop-overlay-enter-active,
+.drop-overlay-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.drop-overlay-enter-from,
+.drop-overlay-leave-to {
+  opacity: 0;
+  transform: scale(0.98);
 }
 </style>

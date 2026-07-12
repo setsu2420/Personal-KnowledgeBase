@@ -51,6 +51,9 @@ public class DocumentParseService {
     @Autowired
     private MinerUClient minerUClient;
 
+    @Autowired
+    private LiteParseClient liteParseClient;
+
     private boolean isAutoApprove() {
         Setting s = settingMapper.selectById("auto_approve_entries");
         return s != null && "true".equals(s.getValue());
@@ -200,7 +203,11 @@ public class DocumentParseService {
         if (doc == null) throw new RuntimeException("文档不存在: " + docId);
 
         List<KnowledgeEntry> entries = new ArrayList<>();
+        // 从标题提取扩展名，若标题无扩展名则回退到文件路径
         String extension = getExtension(doc.getTitle());
+        if (extension.isEmpty() && doc.getFilePath() != null) {
+            extension = getExtension(Path.of(doc.getFilePath()).getFileName().toString());
+        }
 
         String library;
         String fileTypeHint = null;
@@ -364,6 +371,22 @@ public class DocumentParseService {
                     // 纯文本类直接读取，不需要 MinerU
                     if (isPlainTextExtension(extension)) {
                         return Files.readString(path);
+                    }
+
+                    // LiteParse 本地 CLI 解析（优先于 MinerU 远程 API）
+                    if (liteParseClient.isAvailable() && liteParseClient.isSupported(extension)) {
+                        try {
+                            log.info("Using LiteParse CLI to parse: {} ({})", filename, extension);
+                            String liteResult = liteParseClient.parse(path);
+                            if (liteResult != null && !liteResult.isEmpty() && !liteResult.startsWith("[") ) {
+                                log.info("LiteParse parsed {} successfully: {} chars", filename, liteResult.length());
+                                return liteResult;
+                            }
+                            log.warn("LiteParse returned empty or error result for {}, falling back", filename);
+                        } catch (Exception e) {
+                            log.warn("LiteParse failed for {} ({}), falling back to MinerU/local parser",
+                                    filename, e.getMessage());
+                        }
                     }
 
                     // MinerU 远程 API 解析复杂文档（PDF/DOCX/PPTX/HTML/图片）
@@ -694,7 +717,7 @@ public class DocumentParseService {
             String systemPrompt = """
                     你是一个文档分类专家。请分析以下文档内容，推荐：
                     1. 一级分类（categoryL1）：政治、军事、经济、科技、社会、文化、其他
-                    2. 资料类型（docType）：report（研究报告）、dynamic（动态信息）、translation（译丛译著）、chart（图表数据）、policy（政策文件）、news（新闻资讯）
+                    2. 资料类型（docType）：report（研究报告）、dynamic（动态信息）、translation（图书）、chart（图表数据）、policy（政策文件）、news（新闻资讯）
                     3. 目标库（library）：report、dynamic、translation、chart、policy、news
                     
                     请以JSON格式返回：{"categoryL1": "...", "docType": "...", "library": "...", "reason": "..."}
@@ -912,7 +935,12 @@ public class DocumentParseService {
                         entry.setRelated(relList.isEmpty() ? null : String.join(",", relList));
                         // 同步反向关联：确保关联关系双向存储
                         if (entry.getRelated() != null && !entry.getRelated().isEmpty()) {
-                            syncReverseRelations(entry);
+                            try {
+                                syncReverseRelations(entry);
+                            } catch (Exception e) {
+                                log.warn("Failed to sync reverse relations for entry '{}': {}", 
+                                        entry.getTitle(), e.getMessage());
+                            }
                         }
                     } else if (node.has("related")) {
                         String relText = node.get("related").asText().trim();
@@ -935,21 +963,12 @@ public class DocumentParseService {
                 }
             }
         } catch (Exception e) {
-            // 解析失败时创建一个默认词条
-            KnowledgeEntry fallback = new KnowledgeEntry();
-            fallback.setTitle(doc.getTitle());
-            fallback.setEntryType("concept");
-            fallback.setEntryLibrary(library);
-            fallback.setCategoryL1(doc.getCategoryL1());
-            fallback.setCategoryL2(doc.getCategoryL2());
-            fallback.setDocumentId(doc.getId());
-            fallback.setSourceName(doc.getTitle());
-            fallback.setContent("LLM抽取失败，原始响应: " + response.substring(0, Math.min(200, response.length())));
-            fallback.setStatus("pending");
-            fallback.setConfidence(0.0);
-            fallback.setCreatedAt(now);
-            fallback.setProjectId(doc.getProjectId());
-            entries.add(fallback);
+            // 解析失败时记录错误日志，不创建垃圾词条
+            // IRON RULE: 上传的资料不是词条！LLM 抽取失败 = 不创建条目
+            log.error("LLM extraction JSON parse failed for document '{}' (id={}): {} - raw response (first 300 chars): {}",
+                    doc.getTitle(), doc.getId(), e.getMessage(),
+                    response.substring(0, Math.min(300, response.length())));
+            // 返回空列表，不创建任何词条
         }
 
         return entries;
@@ -978,21 +997,29 @@ public class DocumentParseService {
         for (String relTitle : relatedTitles) {
             if (relTitle.trim().isEmpty()) continue;
             
-            LambdaQueryWrapper<KnowledgeEntry> wrapper = new LambdaQueryWrapper<>();
-            wrapper.eq(KnowledgeEntry::getTitle, relTitle.trim());
-            if (pid != null) wrapper.eq(KnowledgeEntry::getProjectId, pid);
-            KnowledgeEntry target = knowledgeEntryMapper.selectOne(wrapper);
-            
-            if (target != null) {
-                java.util.Set<String> targetRelated = new java.util.HashSet<>();
-                if (target.getRelated() != null && !target.getRelated().isEmpty()) {
-                    targetRelated.addAll(java.util.Arrays.asList(target.getRelated().split("\\s*,\\s*")));
+            try {
+                LambdaQueryWrapper<KnowledgeEntry> wrapper = new LambdaQueryWrapper<>();
+                wrapper.eq(KnowledgeEntry::getTitle, relTitle.trim());
+                if (pid != null) wrapper.eq(KnowledgeEntry::getProjectId, pid);
+                // IRON RULE: 使用 selectList 而非 selectOne，因为有同名条目（多 chunk 抽取产生重复标题）
+                java.util.List<KnowledgeEntry> targets = knowledgeEntryMapper.selectList(wrapper);
+                
+                if (targets != null) {
+                    for (KnowledgeEntry target : targets) {
+                        java.util.Set<String> targetRelated = new java.util.HashSet<>();
+                        if (target.getRelated() != null && !target.getRelated().isEmpty()) {
+                            targetRelated.addAll(java.util.Arrays.asList(target.getRelated().split("\\s*,\\s*")));
+                        }
+                        if (!targetRelated.contains(entry.getTitle().trim())) {
+                            targetRelated.add(entry.getTitle().trim());
+                            target.setRelated(String.join(",", targetRelated));
+                            knowledgeEntryMapper.updateById(target);
+                        }
+                    }
                 }
-                if (!targetRelated.contains(entry.getTitle().trim())) {
-                    targetRelated.add(entry.getTitle().trim());
-                    target.setRelated(String.join(",", targetRelated));
-                    knowledgeEntryMapper.updateById(target);
-                }
+            } catch (Exception e) {
+                log.warn("Failed to sync reverse relation for '{}' -> '{}': {}", 
+                        entry.getTitle(), relTitle, e.getMessage());
             }
         }
     }

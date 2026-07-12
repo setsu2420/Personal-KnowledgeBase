@@ -25,7 +25,7 @@
 | **作战力量** | 协同编组模式、作战单元编成、兵力结构体系、人才队伍建设 |
 | **作战运用** | 作战实验、军事演习、实战运用 |
 | **典型项目** | 无人项目、智能项目 |
-| **原始资料库** | 动态信息库、研究报告库、译丛译著库、图表库 |
+| **原始资料库** | 动态信息库、研究报告库、图书库、图表库 |
 
 ---
 
@@ -115,7 +115,7 @@
 ├── 📚 信息库 (下拉菜单)
 │   ├── 📰 动态信息 (admin-info-dynamic.html)
 │   ├── 📄 研究报告 (admin-reports.html)
-│   ├── 📖 译丛译著 (admin-translations.html)
+│   ├── 📖 图书库 (admin-translations.html)
 │   └── 📊 图表 (admin-charts.html)
 ├── 📁 项目库 (admin-projects.html)
 ├── 🏛 组织架构库 (admin-org.html)
@@ -148,7 +148,7 @@
 
 - **动态信息 (admin-info-dynamic.html)：** 时间线形式展示最新动态，支持按分类筛选
 - **研究报告 (admin-reports.html)：** 表格形式展示报告列表，多维度筛选
-- **译丛译著 (admin-translations.html)：** 管理翻译类资料，含原文/译文对照
+- **图书库 (admin-translations.html)：** 管理图书类资料，含原文/译文对照
 - **图表 (admin-charts.html)：** 管理图片、图表类资料，缩略图展示
 
 ### 4.4 项目库 (admin-projects.html)
@@ -242,7 +242,7 @@
     ├── 📚 信息库
     │   ├── 📰 动态信息 (admin-info-dynamic.html)
     │   ├── 📄 研究报告 (admin-reports.html)
-    │   ├── 📖 译丛译著 (admin-translations.html)
+    │   ├── 📖 图书库 (admin-translations.html)
     │   └── 📊 图表 (admin-charts.html)
     ├── 📁 项目库 (admin-projects.html)
     ├── 🏛 组织架构库 (admin-org.html)
@@ -270,7 +270,7 @@
 5. 作战力量 — 协同编组模式、作战单元编成、兵力结构体系、人才队伍建设
 6. 作战运用 — 作战实验、军事演习、实战运用
 7. 典型项目 — 无人项目、智能项目
-8. 原始资料库 — 动态信息库、研究报告库、译丛译著库、图表库
+8. 原始资料库 — 动态信息库、研究报告库、图书库、图表库
 
 ### 8.2 仪表盘展示要素
 
