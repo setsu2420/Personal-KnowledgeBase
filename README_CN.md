@@ -21,6 +21,16 @@
 
 ---
 
+## 界面展示
+
+| 智能问答 (Smart Q&A) | 知识图谱 (Knowledge Graph) |
+| --- | --- |
+| ![智能问答](pics/QA.png) | ![知识图谱](pics/KG.png) |
+
+| 词条百科 (Wiki Page) | 图片管理 (Image Management) |
+| --- | --- |
+| ![词条百科](pics/entry.png) | ![图片管理](pics/pictures.png) |
+
 ## 功能特性
 
 - **Graph-RAG 智能问答** — 基于知识图谱的检索增强生成，支持语义检索、多文档交叉验证、来源溯源，回答附带置信度评分

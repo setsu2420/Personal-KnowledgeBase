@@ -21,6 +21,16 @@
 
 ---
 
+## Interface Showcase
+
+| 智能问答 (Smart Q&A) | 知识图谱 (Knowledge Graph) |
+| --- | --- |
+| ![Smart Q&A](pics/QA.png) | ![Knowledge Graph](pics/KG.png) |
+
+| 词条百科 (Knowledge Entry) | 图片管理 (Image Management) |
+| --- | --- |
+| ![Knowledge Entry](pics/entry.png) | ![Image Management](pics/pictures.png) |
+
 ## Features
 
 - **Graph-RAG Intelligent Q&A** — Knowledge graph-based retrieval-augmented generation with semantic search, cross-document verification, source traceability, and confidence scoring
