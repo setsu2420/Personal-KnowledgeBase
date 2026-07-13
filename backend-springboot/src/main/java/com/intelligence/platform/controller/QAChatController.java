@@ -177,6 +177,8 @@ public class QAChatController {
             record.setAnswer(answer);
             record.setConfidence(confidence);
             record.setSources(objectMapper.writeValueAsString(sources));
+            record.setImages(objectMapper.writeValueAsString(imageResults));
+            record.setTables(objectMapper.writeValueAsString(tableResults));
             record.setUserName("分析人员");
             record.setSessionId(sessionId);
             record.setCreatedAt(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
@@ -313,6 +315,8 @@ public class QAChatController {
                     record.setConfidence(confidence);
                     record.setSessionId(finalSessionId);
                     record.setSources(objectMapper.writeValueAsString(buildSourceList(relevantEntries)));
+                    record.setImages(objectMapper.writeValueAsString(imageResults));
+                    record.setTables(objectMapper.writeValueAsString(tableResults));
                     record.setUserName("分析人员");
                     record.setCreatedAt(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
                     qaRecordMapper.insert(record);

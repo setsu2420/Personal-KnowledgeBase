@@ -631,17 +631,19 @@ async function loadSession(sessionId: string) {
         role: 'assistant',
         content: item.answer,
         confidence: item.confidence,
-        sources: parseSourcesString(item.sources),
+        sources: parseJsonArrayString(item.sources),
+        images: parseJsonArrayString(item.images),
+        tables: parseJsonArrayString(item.tables),
       })
     }
   } catch (e) { console.error(e) }
 }
 
-/** 解析数据库中的来源字符串为数组 */
-function parseSourcesString(sourcesStr: string | undefined): Array<any> {
-  if (!sourcesStr) return []
+/** 解析数据库中的 JSON 数组字符串 */
+function parseJsonArrayString(str: string | undefined): Array<any> {
+  if (!str) return []
   try {
-    const parsed = JSON.parse(sourcesStr)
+    const parsed = JSON.parse(str)
     return Array.isArray(parsed) ? parsed : []
   } catch {
     return []

@@ -19,4 +19,6 @@ public class QARecord {
     private String createdAt;
     private String category;
     private Long projectId;
+    private String images;
+    private String tables;
 }
