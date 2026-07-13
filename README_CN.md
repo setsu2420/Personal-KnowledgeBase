@@ -1,5 +1,4 @@
 <p align="center">
-  <img src="pics/logo.png" alt="Logo" width="120" /><br>
   <h1 align="center">IntelliSense Platform</h1>
   <p align="center">
     <strong>面向无人系统研究的智能情报分析平台</strong><br>
