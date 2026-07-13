@@ -269,7 +269,7 @@ public class QAChatController {
                         1. 先进行文字分析，引用相关文献
                         2. 如果有相关表格数据，必须直接用 Markdown 表格格式嵌入到回答正文中，不要省略
                         3. 表格必须按顺序编号，格式为 **表01**、**表02**...，放在表格上方作为标题
-                        4. 如果知识库中有相关图片，在回答末尾用 ![描述](media-id:xxx) 引用
+                        4. 如果有相关图片，说明"参见相关图表"，不要在文字中嵌入图片引用
                         5. 如果知识库中没有相关信息，请诚实说明
 
                         知识库上下文：
@@ -298,19 +298,13 @@ public class QAChatController {
                     }
                 });
 
-                // 4. 清理回答并发送 done 事件
+                // 4. 清理回答，计算置信度
                 String cleanedAnswer = cleanAnswer(fullAnswer.toString());
                 double confidence = relevantEntries.isEmpty() ? 0.3
                         : Math.min(0.95, 0.5 + relevantEntries.size() * 0.05);
 
-                Map<String, Object> doneData = new HashMap<>();
-                doneData.put("answer", cleanedAnswer);
-                doneData.put("confidence", Math.round(confidence * 100.0) / 100.0);
-                // 流式结束后再返回引用来源，确保来源在回答完毕后才显示
-                doneData.put("sources", sources);
-                emitter.send(SseEmitter.event().name("done").data(objectMapper.writeValueAsString(doneData)));
-
-                // 5. 保存问答记录
+                // 5. 先保存问答记录到数据库（必须在发送 done 事件之前完成，
+                //    避免前端收到 done 后立即调用 loadSessions() 时记录尚未写入的竞态条件）
                 try {
                     QARecord record = new QARecord();
                     record.setProjectId(projectContext.getCurrentProjectId());
@@ -322,9 +316,17 @@ public class QAChatController {
                     record.setUserName("分析人员");
                     record.setCreatedAt(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
                     qaRecordMapper.insert(record);
+                    log.debug("问答记录已保存: sessionId={}", finalSessionId);
                 } catch (Exception e) {
                     log.warn("保存问答记录失败: {}", e.getMessage());
                 }
+
+                // 6. 发送 done 事件（数据库已写入，前端可安全刷新会话列表）
+                Map<String, Object> doneData = new HashMap<>();
+                doneData.put("answer", cleanedAnswer);
+                doneData.put("confidence", Math.round(confidence * 100.0) / 100.0);
+                doneData.put("sources", sources);
+                emitter.send(SseEmitter.event().name("done").data(objectMapper.writeValueAsString(doneData)));
 
                 emitter.complete();
 
