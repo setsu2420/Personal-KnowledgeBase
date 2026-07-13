@@ -565,8 +565,20 @@ onMounted(async () => {
 <style scoped>
 .smart-qa { background: white; border-radius: 8px; padding: 16px; }
 .qa-layout { display: flex; gap: 16px; width: 100%; align-items: flex-start; }
-.session-sidebar { width: 25%; transition: all 0.3s ease; overflow: hidden; flex-shrink: 0; }
-.session-sidebar.collapsed { width: 0; margin-right: -16px; opacity: 0; pointer-events: none; }
+.session-sidebar {
+  width: 280px;
+  min-width: 280px;
+  transition: all 0.3s ease;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.session-sidebar.collapsed {
+  width: 0;
+  min-width: 0;
+  margin-right: -16px;
+  opacity: 0;
+  pointer-events: none;
+}
 .chat-main { flex: 1; min-width: 0; transition: all 0.3s ease; }
 .chat-header-left { display: flex; align-items: center; gap: 8px; }
 .toggle-sidebar-btn { padding: 0; min-height: unset; color: #64748B; cursor: pointer; margin-right: 4px; }
@@ -578,6 +590,8 @@ onMounted(async () => {
   height: 600px;
   display: flex;
   flex-direction: column;
+  width: 280px;
+  box-sizing: border-box;
 }
 .panel-header {
   display: flex;
