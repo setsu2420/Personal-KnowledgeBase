@@ -146,7 +146,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { UploadFilled, Loading, FolderOpened } from '@element-plus/icons-vue'
 import { getKnowledgeEntries, getDocuments, uploadFile, getDocFileUrl, deleteDocument } from '../../api'
 import { ElMessage, ElMessageBox } from 'element-plus'

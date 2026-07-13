@@ -243,7 +243,7 @@ function onDragOver(e: DragEvent) {
   }
 }
 
-function onDragLeave(e: DragEvent) {
+function onDragLeave(_e: DragEvent) {
   dragCounter--
   if (dragCounter <= 0) {
     dragCounter = 0
@@ -320,7 +320,7 @@ function getStatusText(status: string) {
   }
 }
 
-async function handleRetry(row: any, index: number) {
+async function handleRetry(row: any, _index: number) {
   if (!row.id) {
     ElMessage.warning('无法重试：缺少文档ID')
     return

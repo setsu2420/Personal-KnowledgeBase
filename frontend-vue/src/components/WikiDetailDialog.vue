@@ -143,7 +143,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Calendar, PriceTag, Collection, Link, Notebook, OfficeBuilding, Opportunity, Setting, Search, Switch, Files, Picture, Grid, Document } from '@element-plus/icons-vue'
+import { Calendar, PriceTag, Collection, Link } from '@element-plus/icons-vue'
 import { updateTableMarkdown, getMediaUrl } from '../api'
 import { ElMessage } from 'element-plus'
 import { renderPreviewMarkdown } from '../utils/previewFormatting'
