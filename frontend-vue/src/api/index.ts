@@ -200,9 +200,16 @@ export function askQuestionStream(
   const baseUrl = isTauri ? 'http://localhost:8080/api' : '/api'
   const url = `${baseUrl}/qa-chat/ask/stream`
 
+  // 构建请求头：必须手动添加 X-Project-Id，因为 fetch 不走 axios 拦截器
+  const fetchHeaders: Record<string, string> = { 'Content-Type': 'application/json' }
+  const projectId = getCurrentProjectId()
+  if (projectId) {
+    fetchHeaders['X-Project-Id'] = String(projectId)
+  }
+
   fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: fetchHeaders,
     body: JSON.stringify(data),
   }).then(response => {
     if (!response.ok) {
