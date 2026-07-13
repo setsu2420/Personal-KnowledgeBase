@@ -44,6 +44,8 @@ public class VectorSearchService {
     private LlmService llmService;
     @Autowired
     private KnowledgeEntryMapper knowledgeEntryMapper;
+    @Autowired
+    private ProjectContext projectContext;
 
     @Autowired(required = false)
     private com.intelligence.platform.mapper.SettingMapper settingMapper;
@@ -141,6 +143,7 @@ public class VectorSearchService {
             meta.put("mediaPath", entry.getMediaPath() != null ? entry.getMediaPath() : "");
             meta.put("sourceOrigin", entry.getSourceOrigin() != null ? entry.getSourceOrigin() : "");
             meta.put("tableMarkdown", entry.getTableMarkdown() != null ? entry.getTableMarkdown() : "");
+            meta.put("projectId", entry.getProjectId() != null ? String.valueOf(entry.getProjectId()) : "");
 
             index.add(entry.getId(), vector, meta);
             log.debug("已索引词条: id={}, title={}", entry.getId(), entry.getTitle());
@@ -165,7 +168,34 @@ public class VectorSearchService {
         }
 
         float[] queryVector = generateEmbedding(query);
-        return index.search(queryVector, topK);
+        int candidateK = Math.min(topK * 15, index.size());
+        List<VectorIndex.SearchResult> candidates = index.search(queryVector, candidateK);
+
+        Long currentProjectId = projectContext.getCurrentProjectId();
+        List<VectorIndex.SearchResult> filtered = candidates.stream()
+                .filter(r -> {
+                    if (currentProjectId == null) return true;
+                    String entryProjectIdStr = r.metadata() != null ? r.metadata().get("projectId") : null;
+                    if (entryProjectIdStr != null) {
+                        try {
+                            return currentProjectId.equals(Long.valueOf(entryProjectIdStr));
+                        } catch (Exception ignored) {}
+                    }
+                    try {
+                        KnowledgeEntry entry = knowledgeEntryMapper.selectById(r.id());
+                        if (entry != null) {
+                            if (r.metadata() != null) {
+                                r.metadata().put("projectId", String.valueOf(entry.getProjectId()));
+                            }
+                            return currentProjectId.equals(entry.getProjectId());
+                        }
+                    } catch (Exception ignored) {}
+                    return false;
+                })
+                .limit(topK)
+                .toList();
+
+        return filtered;
     }
 
     /**
@@ -183,15 +213,39 @@ public class VectorSearchService {
 
         float[] queryVector = generateEmbedding(query);
         // 获取足够多的候选结果
-        int candidateK = Math.min(topK * 10, index.size()); // 扩大候选范围
+        int candidateK = Math.min(topK * 15, index.size()); // 扩大候选范围
         List<VectorIndex.SearchResult> candidates = index.search(queryVector, candidateK);
 
         log.info("向量搜索 [{}] - 候选: {} 个", mediaType, candidates.size());
 
-        // 应用媒体类型过滤
+        // 1. 应用项目隔离过滤
+        Long currentProjectId = projectContext.getCurrentProjectId();
+        List<VectorIndex.SearchResult> afterProjectFilter = candidates.stream()
+                .filter(r -> {
+                    if (currentProjectId == null) return true;
+                    String entryProjectIdStr = r.metadata() != null ? r.metadata().get("projectId") : null;
+                    if (entryProjectIdStr != null) {
+                        try {
+                            return currentProjectId.equals(Long.valueOf(entryProjectIdStr));
+                        } catch (Exception ignored) {}
+                    }
+                    try {
+                        KnowledgeEntry entry = knowledgeEntryMapper.selectById(r.id());
+                        if (entry != null) {
+                            if (r.metadata() != null) {
+                                r.metadata().put("projectId", String.valueOf(entry.getProjectId()));
+                            }
+                            return currentProjectId.equals(entry.getProjectId());
+                        }
+                    } catch (Exception ignored) {}
+                    return false;
+                })
+                .toList();
+
+        // 2. 应用媒体类型过滤
         List<VectorIndex.SearchResult> afterTypeFilter;
         if (mediaType != null) {
-            afterTypeFilter = candidates.stream()
+            afterTypeFilter = afterProjectFilter.stream()
                     .filter(r -> {
                         String type = r.metadata() != null ? r.metadata().get("mediaType") : null;
                         return mediaType.equals(type);
@@ -199,7 +253,7 @@ public class VectorSearchService {
                     .toList();
             log.info("向量搜索 [{}] - 类型过滤后: {} 个", mediaType, afterTypeFilter.size());
         } else {
-            afterTypeFilter = candidates;
+            afterTypeFilter = afterProjectFilter;
         }
 
         // 打印所有候选结果的分数（用于调试）
@@ -210,14 +264,14 @@ public class VectorSearchService {
             }
         }
 
-        // 应用阈值过滤
+        // 3. 应用阈值过滤
         List<VectorIndex.SearchResult> filtered = afterTypeFilter.stream()
                 .filter(r -> r.score() >= threshold)
                 .toList();
 
         log.info("向量搜索 [{}] - 阈值过滤后(>={}): {} 个", mediaType, threshold, filtered.size());
 
-        // 截取 topK
+        // 4. 截取 topK
         List<VectorIndex.SearchResult> finalResults = filtered.stream().limit(topK).toList();
         log.info("向量搜索 [{}] - 最终返回: {} 个", mediaType, finalResults.size());
         return finalResults;

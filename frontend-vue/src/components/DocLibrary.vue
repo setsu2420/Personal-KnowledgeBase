@@ -183,8 +183,6 @@ const libraries = [
   { key: 'report', name: getLibraryLabel('report') },
   { key: 'dynamic', name: getLibraryLabel('dynamic') },
   { key: 'translation', name: getLibraryLabel('translation') },
-  { key: 'policy', name: getLibraryLabel('policy') },
-  { key: 'news', name: getLibraryLabel('news') },
   { key: 'chart', name: getLibraryLabel('chart') },
 ]
 
