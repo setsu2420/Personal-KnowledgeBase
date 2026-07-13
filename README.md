@@ -1,18 +1,22 @@
-# Intelligent Intelligence Analysis Platform
-
 <p align="center">
-  <strong>A specialized intelligent intelligence analysis platform for unmanned systems research.</strong><br>
-  Upload documents, build knowledge graphs, intelligent Q&A — all powered by LLMs.
+  <img src="pics/logo.png" alt="Logo" width="120" /><br>
+  <h1 align="center">IntelliSense Platform</h1>
+  <p align="center">
+    <strong>Intelligence Analysis Platform for Unmanned Systems Research</strong><br>
+    Upload documents → Build knowledge graphs → Ask intelligent questions — all powered by LLMs.
+  </p>
 </p>
 
 <p align="center">
-  <a href="#what-is-this">What is this?</a> •
-  <a href="#features">Features</a> •
-  <a href="#architecture">Architecture</a> •
-  <a href="#tech-stack">Tech Stack</a> •
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#credits">Credits</a> •
-  <a href="#license">License</a>
+  <a href="https://github.com/setsu2420/Personal-KnowledgeBase/stargazers"><img src="https://img.shields.io/github/stars/setsu2420/Personal-KnowledgeBase?style=flat-square&color=yellow" alt="Stars"></a>
+  <a href="https://github.com/setsu2420/Personal-KnowledgeBase/blob/main/LICENSE"><img src="https://img.shields.io/github/license/setsu2420/Personal-KnowledgeBase?style=flat-square&color=blue" alt="License"></a>
+  <a href="https://github.com/setsu2420/Personal-KnowledgeBase/releases"><img src="https://img.shields.io/github/v/release/setsu2420/Personal-KnowledgeBase?style=flat-square&color=green" alt="Release"></a>
+  <br>
+  <img src="https://img.shields.io/badge/Java-25-orange?style=flat-square&logo=openjdk" alt="Java">
+  <img src="https://img.shields.io/badge/Vue-3.5-brightgreen?style=flat-square&logo=vuedotjs" alt="Vue">
+  <img src="https://img.shields.io/badge/Spring%20Boot-4.1-6DB33F?style=flat-square&logo=springboot" alt="Spring Boot">
+  <img src="https://img.shields.io/badge/Tauri-2.0-FFC131?style=flat-square&logo=tauri" alt="Tauri">
+  <img src="https://img.shields.io/badge/MySQL-8.0-4479A1?style=flat-square&logo=mysql" alt="MySQL">
 </p>
 
 <p align="center">
@@ -21,88 +25,148 @@
 
 ---
 
-## Interface Showcase
+## 📖 Table of Contents
 
-| 智能问答 (Smart Q&A) | 知识图谱 (Knowledge Graph) |
-| --- | --- |
-| ![Smart Q&A](pics/QA.png) | ![Knowledge Graph](pics/KG.png) |
+- [✨ Interface Showcase](#-interface-showcase)
+- [🤔 What is IntelliSense?](#-what-is-intellisense)
+- [🚀 Core Features](#-core-features)
+- [🏗️ Architecture](#️-architecture)
+- [🛠️ Tech Stack](#️-tech-stack)
+- [⚡ Quick Start](#-quick-start)
+- [🔍 Feature Deep Dive](#-feature-deep-dive)
+  - [1. Graph-RAG Intelligent Q&A](#1-graph-rag-intelligent-qa)
+  - [2. Four-Signal Knowledge Graph](#2-four-signal-knowledge-graph)
+  - [3. Deep Research](#3-deep-research)
+  - [4. Contradiction Detection](#4-contradiction-detection)
+  - [5. Multi-Format Document Support](#5-multi-format-document-support)
+  - [6. Desktop Application (Tauri 2)](#6-desktop-application-tauri-2)
+- [⚖️ Comparison with LLM Wiki](#️-comparison-with-llm-wiki)
+- [📁 Project Structure](#-project-structure)
+- [⚙️ Configuration](#️-configuration)
+- [📚 Documentation](#-documentation)
+- [🙏 Credits](#-credits)
+- [📄 License](#-license)
 
-| 词条百科 (Knowledge Entry) | 图片管理 (Image Management) |
-| --- | --- |
-| ![Knowledge Entry](pics/entry.png) | ![Image Management](pics/pictures.png) |
+---
 
-## Features
+## ✨ Interface Showcase
 
-- **Graph-RAG Intelligent Q&A** — Knowledge graph-based retrieval-augmented generation with semantic search, cross-document verification, source traceability, and confidence scoring
-- **Deep Research** — Multi-step reasoning with cross-source synthesis, process visualization, for systematic research on complex topics
-- **Multi-format Document Management** — Support PDF/Word/Excel/Image(OCR)/Text uploads with automatic structure recognition and key information extraction
-- **4-Signal Knowledge Graph** — Direct links, source overlap, Adamic-Adar, and keyword overlap — four-dimensional relevance model
-- **Louvain Community Detection** — Automatic knowledge cluster discovery with cohesion scoring
-- **Contradiction Detection** — Auto-identify contradictory conclusions and data inconsistencies across sources, graded by severity
-- **Dual-Space Architecture** — Front-end analysis workspace and back-end management workspace separated, shared data, isolated permissions
-- **Project Isolation** — Multi-project support with independent knowledge bases and cross-project switching
-- **Local-First** — All data stored in local database, no external cloud dependencies, works offline
-- **Vector Semantic Search** — FAISS-based embedding retrieval, supports any OpenAI-compatible endpoint
-- **Desktop Application** — Tauri 2 native desktop app with system tray, global shortcuts, auto-update
+<table align="center">
+  <tr>
+    <td align="center"><strong>🤖 Smart Q&A</strong></td>
+    <td align="center"><strong>🔗 Knowledge Graph</strong></td>
+  </tr>
+  <tr>
+    <td><img src="pics/QA.png" alt="Smart Q&A Interface" /></td>
+    <td><img src="pics/KG.png" alt="Knowledge Graph Visualization" /></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>📚 Wiki Entries</strong></td>
+    <td align="center"><strong>🖼️ Image Management</strong></td>
+  </tr>
+  <tr>
+    <td><img src="pics/entry.png" alt="Wiki Entry Browser" /></td>
+    <td><img src="pics/pictures.png" alt="Image Management Dashboard" /></td>
+  </tr>
+</table>
 
-## What is this?
+---
 
-The Intelligent Intelligence Analysis Platform is a specialized desktop application for **unmanned systems (UAV/UGV/USV/UUV) researchers and analysts**. It automatically transforms your documents into an organized, interlinked knowledge base — unlike traditional RAG (retrieve-and-answer from scratch every time), this system **incrementally builds and maintains structured knowledge entries**. Knowledge is compiled once and kept current, not re-derived on every query.
+## 🤔 What is IntelliSense?
 
-This project is based on [Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) and inspired by [LLM Wiki](https://github.com/nashsu/llm_wiki). We implemented the core ideas as a full-stack desktop application with significant enhancements in specialized document management and analysis.
+**IntelliSense Platform** is a specialized desktop application built for **unmanned systems (UAV / UGV / USV / UUV) researchers and analysts**. It transforms your documents — PDFs, Word files, spreadsheets, images — into an organized, interlinked, and queryable knowledge base.
 
-## Architecture
+> Unlike traditional RAG systems that retrieve and re-derive answers from scratch on every query, IntelliSense **incrementally builds and maintains structured knowledge entries**. Knowledge is compiled once, kept current, and referenced directly — not re-derived each time.
+
+### 🧬 Design Philosophy
+
+- **Knowledge-first, not retrieval-first** — Structured entries > ephemeral retrieval
+- **Local & offline** — Your data never leaves your machine
+- **Multi-project isolation** — One tool, many projects, zero data leakage
+- **LLM-augmented, human-curated** — AI does the heavy lifting; you stay in control
+
+This project builds upon [Andrej Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) and draws inspiration from [LLM Wiki](https://github.com/nashsu/llm_wiki), extended significantly for specialized document analysis in the unmanned systems domain.
+
+---
+
+## 🚀 Core Features
+
+| # | Feature | Description |
+|---|---------|-------------|
+| 🔍 | **Graph-RAG Q&A** | Knowledge-graph-based retrieval-augmented generation with semantic search, cross-document verification, source traceability, and confidence scoring |
+| 🧠 | **Deep Research** | Multi-step LLM reasoning with cross-source synthesis and real-time process visualization |
+| 📄 | **Multi-Format Parsing** | PDF, Word, Excel, Images (OCR), and plain text — automatic structure recognition and key information extraction |
+| 🔗 | **4-Signal Knowledge Graph** | Direct links, source overlap, Adamic-Adar, and keyword overlap — a four-dimensional relevance model |
+| 🧩 | **Louvain Community Detection** | Automatic knowledge cluster discovery with cohesion scoring |
+| ⚠️ | **Contradiction Detection** | Auto-identify conflicting conclusions and data inconsistencies across sources, graded by severity |
+| 🏠 | **Dual-Space Architecture** | Front-end analysis workspace + back-end management workspace — shared data, isolated permissions |
+| 📦 | **Project Isolation** | Multi-project support with independent knowledge bases and one-click switching |
+| 🖥️ | **Local-First** | All data stored locally — no cloud dependencies, works fully offline |
+| 🧲 | **Vector Semantic Search** | FAISS-powered embedding retrieval — compatible with any OpenAI-format endpoint |
+| 🪟 | **Native Desktop App** | Tauri 2 desktop application with system tray, global shortcuts, and auto-update |
+
+---
+
+## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                  Frontend (Vue 3 + Element Plus)         │
-│  ┌──────────────┐     ┌──────────────────────────────┐  │
-│  │   Frontend   │     │         Backend              │  │
-│  │  (Analysis)  │     │      (Management)            │  │
-│  │  Wiki, Q&A,  │     │  Dashboard, Sources,         │  │
-│  │  Deep Research│     │  Charts, Graph, Config...    │  │
-│  └──────┬───────┘     └──────────┬───────────────────┘  │
-└─────────┼────────────────────────┼──────────────────────┘
-          │    REST API (HTTP)     │
-┌─────────┼────────────────────────┼──────────────────────┐
-│         ▼                        ▼                      │
-│              Backend (Spring Boot 4.1)                  │
-│  ┌─────────────┐  ┌──────────┐  ┌───────────┐  ┌────┐ │
-│  │  LLM Service│  │  Vector  │  │  Document │  │Graph│ │
-│  │  (Chat/     │  │  Search  │  │  Upload   │  │Svc  │ │
-│  │   Embed)    │  │  (FAISS) │  │  Service  │  │     │ │
-│  └──────┬──────┘  └────┬─────┘  └─────┬─────┘  └──┬─┘ │
-│         │              │              │             │   │
-│  ┌──────▼──────────────▼──────────────▼─────────────▼┐  │
-│  │           MySQL 8.0 Database                      │  │
-│  └──────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                   Frontend (Vue 3 + Element Plus)                │
+│  ┌──────────────────────┐     ┌──────────────────────────────┐  │
+│  │   Analysis Workspace │     │    Management Workspace      │  │
+│  │                      │     │                              │  │
+│  │  • Wiki Browser      │     │  • Dashboard & Analytics     │  │
+│  │  • Smart Q&A         │     │  • Source Management         │  │
+│  │  • Deep Research     │     │  • Graph Visualization       │  │
+│  │  • Knowledge Graph   │     │  • System Configuration      │  │
+│  └──────────┬───────────┘     └──────────────┬───────────────┘  │
+└─────────────┼────────────────────────────────┼──────────────────┘
+              │        REST API (HTTP)         │
+┌─────────────┼────────────────────────────────┼──────────────────┐
+│             ▼                                ▼                  │
+│                 Backend (Spring Boot 4.1)                       │
+│  ┌───────────────┐ ┌──────────────┐ ┌───────────┐ ┌─────────┐ │
+│  │  LLM Service  │ │ Vector Store │ │ Document  │ │  Graph  │ │
+│  │  (Chat/Embed) │ │   (FAISS)    │ │  Parser   │ │ Engine  │ │
+│  └───────┬───────┘ └──────┬───────┘ └─────┬─────┘ └────┬────┘ │
+│          │                │               │            │       │
+│  ┌───────┴────────────────┴───────────────┴────────────┴─────┐ │
+│  │                   MySQL 8.0 Database                      │ │
+│  └───────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
           │
           ▼
    External LLM APIs
-   (DeepSeek, SiliconFlow, OpenAI, etc.)
+   (DeepSeek • SiliconFlow • OpenAI • Anthropic • …)
 ```
 
-## Tech Stack
+**Data Flow**: Documents → Parsed & Chunked → Vectorized & Indexed → Knowledge Graph constructed → Graph-RAG ready for Q&A
 
-| Layer | Technology |
-|-------|-----------|
-| Desktop | Tauri 2 (Rust backend + Spring Boot sidecar) |
-| Frontend | Vue 3.5 + Element Plus 2.14 + TypeScript + Vite |
-| Backend | Spring Boot 4.1 + MyBatis-Plus 3.5 + Java 25 |
-| Database | MySQL 8.0 |
-| AI / LLM | OpenAI-compatible API (DeepSeek, SiliconFlow, OpenAI, etc.) |
-| Vector Embedding | SiliconFlow Embedding API (BGE-M3) |
-| Vector Search | Custom lightweight vector index (FAISS-compatible) |
-| Graph Visualization | ECharts (force-directed layout) |
-| State Management | Pinia |
-| Deployment | Docker + Docker Compose |
+---
 
-## Quick Start
+## 🛠️ Tech Stack
 
-### Option 1: Docker (Recommended)
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| 🖥️ Desktop Shell | **Tauri 2** (Rust) | Native windowing, system tray, sidecar management |
+| 🎨 Frontend | **Vue 3.5** + **Element Plus 2.14** + **TypeScript** | Reactive UI framework with enterprise-grade components |
+| ⚙️ Build Tool | **Vite** | Blazing-fast dev server and bundler |
+| ☕ Backend | **Spring Boot 4.1** + **MyBatis-Plus 3.5** | Production-grade Java backend |
+| 🗄️ Database | **MySQL 8.0** | Reliable, performant RDBMS |
+| 🤖 AI / LLM | OpenAI-compatible APIs | Multi-provider support (DeepSeek, OpenAI, Anthropic, etc.) |
+| 🧲 Embedding | BGE-M3 / BGE-large-zh | High-quality Chinese-English bilingual embeddings |
+| 📊 Vector Search | **FAISS** | GPU-accelerated approximate nearest neighbor |
+| 🔗 Graph Viz | **ECharts** | Interactive force-directed knowledge graphs |
+| 🗃️ State Mgmt | **Pinia** | Lightweight, type-safe Vue state management |
+| 🐳 Deployment | **Docker** + **Docker Compose** | One-command production deployment |
 
-**Prerequisites**: Docker 20.10+ and Docker Compose 2.0+
+---
+
+## ⚡ Quick Start
+
+### 🐳 Option 1: Docker (Recommended)
+
+> **Prerequisites**: Docker 20.10+ & Docker Compose 2.0+
 
 ```bash
 git clone https://github.com/setsu2420/Personal-KnowledgeBase.git
@@ -111,150 +175,188 @@ chmod +x load-and-run.sh
 ./load-and-run.sh
 ```
 
-Visit http://localhost after deployment.
+Open [http://localhost](http://localhost) and start exploring.
 
-### Option 2: Local Development
+### 💻 Option 2: Local Development
 
-**Prerequisites**: JDK 21+, Node.js 20+, MySQL 8.0
+> **Prerequisites**: JDK 21+, Node.js 20+, MySQL 8.0
 
 ```bash
-# 1. Create database
-mysql -u root -e "CREATE DATABASE intelligence_platform CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+# 1. Create the database
+mysql -u root -e "CREATE DATABASE intelligence_platform \
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
-# 2. Initialize schema
+# 2. Initialize schema and seed data
 mysql -u root intelligence_platform < init-db/01-schema.sql
 mysql -u root intelligence_platform < init-db/02-init-data.sql
 
-# 3. Start backend
+# 3. Start the backend
 cd backend-springboot
 ./mvnw spring-boot:run
 
-# 4. Start frontend (new terminal)
+# 4. Start the frontend (in a new terminal)
 cd frontend-vue
 npm install
 npm run dev
 ```
 
-Visit http://localhost:5173
+Visit [http://localhost:5173](http://localhost:5173)
 
-## Core Features In-Depth
+| Workspace | URL |
+|-----------|-----|
+| 🧑‍🔬 Analysis (Portal) | `http://localhost:5173/portal` |
+| ⚙️ Management (Admin) | `http://localhost:5173/admin` |
+| 🔌 Backend API | `http://localhost:8080/api` |
+
+---
+
+## 🔍 Feature Deep Dive
 
 ### 1. Graph-RAG Intelligent Q&A
 
-Unlike traditional RAG that retrieves from scratch for every query, this system uses knowledge graph-based retrieval:
+Unlike naive RAG, our **graph-aware retrieval pipeline** ensures richer context and higher answer quality:
 
 ```
-Phase 1: Semantic Retrieval
-  - FAISS vector index for fast ANN search
-  - Chinese CJK tokenization + English stop word filtering
-  - Title match bonus (+10 score)
+Phase 1 — Semantic Retrieval
+  ├─ FAISS ANN search with CJK-aware tokenization
+  ├─ English stop-word filtering
+  └─ Title match bonus (+10 score boost)
 
-Phase 2: Graph Expansion
-  - 4-signal relevance model for related pages
-  - 2-hop traversal with decay
+Phase 2 — Graph Expansion
+  ├─ 4-signal relevance scoring across the knowledge graph
+  └─ 2-hop traversal with decay factor
 
-Phase 3: Context Assembly
-  - Numbered pages with full content
-  - LLM cites sources by number: [1], [2], etc.
-  - Confidence scoring and cross-document verification
+Phase 3 — Context Assembly
+  ├─ Numbered passages fed to the LLM
+  ├─ Inline source citations: [1], [2], …
+  ├─ Confidence score per answer
+  └─ Cross-document verification flag
 ```
 
-### 2. Knowledge Graph
+### 2. Four-Signal Knowledge Graph
 
-4-signal relevance model visualized via ECharts force-directed layout:
+Visualized as an interactive ECharts force-directed graph:
 
-| Signal | Weight | Description |
-|--------|--------|-------------|
-| Direct Link | ×3.0 | Pages linked directly |
-| Source Overlap | ×4.0 | Pages sharing the same source document |
-| Adamic-Adar | ×1.5 | Pages sharing common neighbors |
-| Keyword Overlap | ×1.0 | Keyword intersection |
+| Signal | Weight | What it captures |
+|--------|:------:|------------------|
+| 🔗 **Direct Link** | ×3.0 | Pages explicitly linked together |
+| 📎 **Source Overlap** | ×4.0 | Pages derived from the same source document |
+| 🧮 **Adamic-Adar** | ×1.5 | Pages with many shared neighbors (community signal) |
+| 🔑 **Keyword Overlap** | ×1.0 | Shared topical keywords |
 
-Features: Louvain community detection, cohesion scoring, graph insights (bridge nodes, isolated pages), type/community coloring toggle.
+**Graph Capabilities**:
+- 🎨 Color by type or community (toggleable)
+- 🔍 Zoom, pan, fit-to-view
+- 🧩 Louvain community detection + cohesion scoring
+- 💡 Graph insights: bridge nodes, isolated pages, density metrics
 
 ### 3. Deep Research
 
-When knowledge gaps are identified:
-- Multi-step LLM reasoning with progress visualization
-- Cross-source synthesis and verification
-- Auto-generated structured research reports
-- Auto-ingest results into knowledge base
+Triggered when the system detects knowledge gaps beyond existing coverage:
+
+- **Multi-step reasoning** — LLM breaks down complex questions, shown as a progress pipeline
+- **Cross-source synthesis** — Corroborates findings across multiple documents
+- **Live process visualization** — Streaming updates as the research unfolds
+- **Auto-generated report** — Structured markdown research report with citations
+- **Automatic ingestion** — Extracted entities & concepts are merged back into the knowledge base
 
 ### 4. Contradiction Detection
 
-- Auto-identify conflicting conclusions across sources
-- Data inconsistency detection (numbers, dates, etc.)
-- Severity-based classification (High/Medium/Low)
-- Research direction suggestions based on existing knowledge
+- 🔴 **High**: Directly conflicting conclusions on the same claim
+- 🟡 **Medium**: Data inconsistencies (numbers, dates, figures)
+- 🟢 **Low**: Divergent interpretations or nuance differences
+- 🧭 Direction suggestions based on detected knowledge gaps
 
-### 5. Multi-format Document Support
+### 5. Multi-Format Document Support
 
-| Format | Method |
-|--------|--------|
-| PDF | Apache PDFBox parsing, structure recognition |
-| Word (DOCX) | Apache POI parsing, preserves headings/bold/lists/tables |
-| Excel (XLSX) | Apache POI parsing, multi-sheet support |
-| Images | Tesseract OCR + VLM vision model |
-| Text/Markdown | Direct reading, UTF-8 encoding |
+| Format | Engine | Capabilities |
+|--------|--------|-------------|
+| 📕 PDF | Apache PDFBox | Text extraction, structure recognition |
+| 📘 Word (DOCX) | Apache POI | Preserves headings, bold, lists, tables |
+| 📗 Excel (XLSX) | Apache POI | Multi-sheet parsing |
+| 🖼️ Images | Tesseract OCR + VLM | Text recognition + visual understanding |
+| 📝 Text / Markdown | Native reader | UTF-8, YAML frontmatter support |
 
 ### 6. Desktop Application (Tauri 2)
 
-- **System Tray** — Show/hide window, restart backend, open data directory, quit
-- **Backend Monitor** — Tri-color status indicator (green/yellow/red), JVM memory details
-- **Splash Screen** — Tech-themed logo animation + loading state, 30s timeout detection
-- **Global Shortcuts** — Cmd/Ctrl+Q quit, Cmd/Ctrl+W hide, Cmd/Ctrl+, settings
-- **First-run Wizard** — LLM API key setup, data directory selection, sample project creation
-- **Auto-update** — Built-in Tauri updater from GitHub Releases
-- **Error Handling** — Global ErrorBoundary with friendly messages, auto-retry (up to 3x)
-- **Single Instance** — Prevents duplicate launches, focuses existing window
+| Feature | Description |
+|---------|-------------|
+| 🖥️ **System Tray** | Show/hide, restart backend, open data dir, quit |
+| 🟢 **Backend Monitor** | Green / Yellow / Red status indicator + JVM memory details |
+| ✨ **Splash Screen** | Animated logo with loading progress; 30s timeout fallback |
+| ⌨️ **Global Shortcuts** | `Cmd/Ctrl+Q` quit, `Cmd/Ctrl+W` hide, `Cmd/Ctrl+,` settings |
+| 🧙 **First-Run Wizard** | API key config, data directory selection, sample project |
+| 🔄 **Auto-Update** | Tauri updater from GitHub Releases |
+| 🛡️ **Error Handling** | Global ErrorBoundary, friendly messages, auto-retry (×3) |
+| 🔒 **Single Instance** | Prevents duplicate launches; focuses existing window |
 
-## Project Structure
+---
+
+## ⚖️ Comparison with LLM Wiki
+
+| Dimension | LLM Wiki | IntelliSense Platform |
+|-----------|----------|-----------------------|
+| 🎯 **Positioning** | General personal wiki | Domain-specific intelligence platform (unmanned systems) |
+| 🏛️ **Architecture** | Monolithic (Tauri + React) | Dual-app (Spring Boot + Vue 3 + Tauri) |
+| 🗄️ **Storage** | File-system wiki | MySQL + MyBatis-Plus ORM |
+| 🎨 **Frontend** | React + shadcn/ui | Vue 3 + Element Plus |
+| 📄 **Input Formats** | Markdown, web pages | PDF, Word, Excel, Images (OCR), Text |
+| 📦 **Knowledge Model** | Wiki pages (YAML frontmatter) | Structured entries + classification taxonomy |
+| 📁 **Project Model** | Single wiki | Multi-project isolation |
+| 📊 **Graph Viz** | sigma.js | ECharts (force-directed + interactive) |
+| ⭐ **Unique Strengths** | Web clipper, Obsidian compat | Contradiction detection, deep research, research direction suggestions |
+
+---
+
+## 📁 Project Structure
 
 ```
-├── backend-springboot/          # Spring Boot backend
-│   ├── src/main/java/
-│   │   └── com/intelligence/platform/
-│   │       ├── controller/      # REST API controllers
-│   │       ├── service/         # Business logic layer
-│   │       ├── config/          # Configuration classes
-│   │       ├── entity/          # Data entities
-│   │       └── mapper/          # MyBatis-Plus mappers
+Personal-KnowledgeBase/
+├── backend-springboot/          # ☕ Spring Boot backend
+│   ├── src/main/java/com/intelligence/platform/
+│   │   ├── controller/          #   REST API controllers (23 endpoints)
+│   │   ├── service/             #   Business logic layer
+│   │   ├── config/              #   Spring configuration
+│   │   ├── entity/              #   JPA / MyBatis-Plus entities
+│   │   └── mapper/              #   Data access mappers
 │   ├── pom.xml
 │   └── Dockerfile
-├── frontend-vue/                # Vue 3 frontend
+├── frontend-vue/                # 🎨 Vue 3 frontend
 │   ├── src/
-│   │   ├── views/               # Page views
-│   │   ├── components/          # Shared components
-│   │   ├── api/                 # API layer
-│   │   ├── composables/         # Vue composables
-│   │   ├── router/              # Vue Router
-│   │   └── store/               # Pinia store
+│   │   ├── views/               #   Page views (portal & admin)
+│   │   ├── components/          #   Reusable UI components
+│   │   ├── composables/         #   Tauri API wrappers
+│   │   ├── api/                 #   Axios API layer
+│   │   ├── router/              #   Vue Router config
+│   │   └── store/               #   Pinia state stores
 │   ├── Dockerfile
 │   └── nginx.conf
-├── src-tauri/                   # Tauri 2 desktop shell
-│   ├── src/                     # Rust backend
-│   ├── icons/                   # App icons
+├── src-tauri/                   # 🦀 Tauri 2 desktop shell
+│   ├── src/                     #   Rust backend (sidecar, tray, shortcuts)
+│   ├── icons/                   #   App icons
 │   └── tauri.conf.json
-├── init-db/                     # Database init scripts
-├── scripts/                     # Build & utility scripts
-├── config/                      # Application configuration
-├── docs/                        # Documentation
-├── docker-compose.yml           # Docker orchestration
-├── load-and-run.sh              # One-click deploy script
-└── package-delivery.sh          # Delivery package builder
+├── init-db/                     # 🗄️ Database init scripts
+├── scripts/                     # 🔧 Build & utility scripts
+├── config/                      # ⚙️ Application configuration
+├── docs/                        # 📚 Documentation
+├── docker-compose.yml           # 🐳 Docker orchestration
+├── load-and-run.sh              # 🚀 One-click deploy
+└── package-delivery.sh          # 📦 Delivery build script
 ```
 
-## Configuration
+---
 
-### LLM Configuration
+## ⚙️ Configuration
 
-Configure via Backend → System Settings → LLM Config:
+### 🤖 LLM Providers
 
-- **Chat Model**: DeepSeek-Chat / GPT-4 / any OpenAI-compatible endpoint
-- **Embedding Model**: BGE-M3 / text-embedding-ada-002
-- **Vision Model**: For image understanding and table OCR
+Navigate to **Admin → System Settings → LLM Configuration** to set up:
 
-### Environment Variables
+- **Chat**: DeepSeek-Chat, GPT-4o, Claude, Gemini — any OpenAI-compatible endpoint
+- **Embedding**: BGE-M3, text-embedding-3, BGE-large-zh
+- **Vision**: For image understanding and table OCR
+
+### 🌍 Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -263,24 +365,34 @@ Configure via Backend → System Settings → LLM Config:
 | `JAVA_OPTS` | JVM arguments | `-Xms512m -Xmx2g` |
 | `SPRING_PROFILES_ACTIVE` | Spring profile | `production` |
 
-## Comparison with LLM Wiki
+---
 
-| Aspect | LLM Wiki | This Platform |
-|--------|----------|---------------|
-| Positioning | General personal knowledge base | Specialized intelligence platform for unmanned systems |
-| Architecture | Single app (Tauri + React) | Dual app (Spring Boot + Vue 3 + Tauri) |
-| Database | File-system Wiki | MySQL + MyBatis-Plus ORM |
-| Frontend | React + shadcn/ui | Vue 3 + Element Plus |
-| Document Types | Markdown, web pages | PDF, Word, Excel, Images(OCR), Text |
-| Knowledge Format | Wiki pages (YAML frontmatter) | Structured entries + classification system |
-| Project Model | Single wiki | Multi-project isolation |
-| Graph Visualization | sigma.js | ECharts |
-| Unique Features | Web clipper, Obsidian compatibility | Contradiction detection, research direction suggestions, report generation |
+## 📚 Documentation
 
-## Credits
+| Document | Description |
+|----------|-------------|
+| [📐 Architecture](docs/architecture.md) | System architecture, design decisions, and data flow |
+| [📡 API Reference](docs/api-reference.md) | Full REST API documentation (100+ endpoints) |
+| [📋 Changelog](docs/changelog.md) | Release notes and version history |
+| [🛠️ Tech Stack](docs/TECH_STACK.md) | Detailed technology choices and rationale |
+| [📖 Usage Guide](docs/usage.md) | End-user manual and workflow guide |
 
-This project is based on [Andrej Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) and heavily inspired by [nashsu/llm_wiki](https://github.com/nashsu/llm_wiki). We extend the core ideas into a specialized platform for unmanned systems research with a focus on multi-format document processing, structured knowledge extraction, and cross-document intelligence analysis.
+---
 
-## License
+## 🙏 Credits
 
-MIT License
+- **Andrej Karpathy** — for the [LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) that started it all
+- **Yong Su (nashsu)** — for the [LLM Wiki](https://github.com/nashsu/llm_wiki) implementation that inspired much of our design
+- Built with ❤️ using [Vue 3](https://vuejs.org/), [Element Plus](https://element-plus.org/), [Spring Boot](https://spring.io/projects/spring-boot), [Tauri 2](https://tauri.app/), and [ECharts](https://echarts.apache.org/)
+
+---
+
+## 📄 License
+
+This project is open source under the [MIT License](LICENSE).
+
+---
+
+<p align="center">
+  <sub>Made with ❤️ for unmanned systems researchers everywhere</sub>
+</p>
