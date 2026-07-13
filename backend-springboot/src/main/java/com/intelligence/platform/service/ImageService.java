@@ -867,7 +867,7 @@ public class ImageService {
         // 同时生成 caption 作为描述
         String caption = generateCaption(imageData, mime);
 
-        // 优先参考现有词条：查找该项目下名称匹配的现有概念/实体词条
+        // 优先参考现有词条：查找该项目下名称匹配 of 现有概念/实体词条
         if (projectId != null) {
             List<KnowledgeEntry> existing = knowledgeEntryMapper.selectList(
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeEntry>()
@@ -882,17 +882,14 @@ public class ImageService {
                     (tableMarkdown != null && tableMarkdown.contains(e.getTitle()))) {
                     
                     log.info("【图片表格处理】优先匹配并关联到现有词条: {}", e.getTitle());
-                    e.setTableMarkdown(tableMarkdown);
-                    e.setMediaPath(mediaPath);
-                    e.setMediaType("table");
                     if (e.getContent() == null || e.getContent().isEmpty()) {
-                        e.setContent(caption);
-                    } else if (caption != null && !e.getContent().contains(caption)) {
-                        e.setContent(e.getContent() + "\n\n**相关数据表格描述**：\n" + caption);
+                        e.setContent("**关联表格数据**：\n" + tableMarkdown);
+                    } else if (tableMarkdown != null && !e.getContent().contains(tableMarkdown)) {
+                        e.setContent(e.getContent() + "\n\n**关联表格数据**：\n" + tableMarkdown);
                     }
                     knowledgeEntryMapper.updateById(e);
                     vectorSearchService.indexEntry(e); // 重新建立向量索引
-                    return e;
+                    break;
                 }
             }
         }
@@ -946,16 +943,14 @@ public class ImageService {
                 // 如果文件名包含词条标题，或 caption 包含词条标题，则优先关联该词条
                 if (filename.contains(e.getTitle()) || (caption != null && caption.contains(e.getTitle()))) {
                     log.info("【图片处理】优先匹配并关联到现有词条: {}", e.getTitle());
-                    e.setMediaPath(mediaPath);
-                    e.setMediaType("image");
                     if (e.getContent() == null || e.getContent().isEmpty()) {
-                        e.setContent(caption);
+                        e.setContent("**关联图片描述**：\n" + caption);
                     } else if (caption != null && !e.getContent().contains(caption)) {
-                        e.setContent(e.getContent() + "\n\n**相关图片描述**：\n" + caption);
+                        e.setContent(e.getContent() + "\n\n**关联图片描述**：\n" + caption);
                     }
                     knowledgeEntryMapper.updateById(e);
                     vectorSearchService.indexEntry(e); // 重新建立向量索引
-                    return e;
+                    break;
                 }
             }
         }
