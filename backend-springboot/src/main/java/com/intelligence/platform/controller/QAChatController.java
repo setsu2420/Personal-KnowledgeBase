@@ -619,8 +619,8 @@ public class QAChatController {
     }
 
     /**
-     * 获取会话历史（按项目隔离，按最近消息时间倒序排列）
-     * 查询条件：当前项目的记录 OR project_id 为 NULL 的历史兼容记录
+     * 获取会话历史（严格按项目隔离，按最近消息时间倒序排列）
+     * 无项目上下文时返回所有记录；有项目时只返回该项目的记录。
      */
     @GetMapping("/sessions")
     public List<Map<String, Object>> listSessions() {
@@ -629,9 +629,7 @@ public class QAChatController {
                 .ne(QARecord::getSessionId, "")
                 .isNotNull(QARecord::getSessionId);
         if (projectId != null) {
-            // 返回当前项目的记录 OR project_id 为 NULL 的记录（兼容旧数据）
-            sessionWrapper.and(w -> w.eq(QARecord::getProjectId, projectId)
-                                     .or().isNull(QARecord::getProjectId));
+            sessionWrapper.eq(QARecord::getProjectId, projectId);
         }
         sessionWrapper.orderByAsc(QARecord::getCreatedAt);
 
@@ -642,7 +640,7 @@ public class QAChatController {
                 .collect(Collectors.groupingBy(QARecord::getSessionId))
                 .entrySet().stream()
                 .map(e -> {
-                    // 对组内记录按 createdAt 排序，确保 get(0) 是最早的消息
+                    // 组内按时间排序，确保 get(0) 是最早的消息
                     List<QARecord> sorted = e.getValue().stream()
                             .sorted((a, b) -> {
                                 String ta = a.getCreatedAt() != null ? a.getCreatedAt() : "";
@@ -658,7 +656,6 @@ public class QAChatController {
                     session.put("msg_count", sorted.size());
                     return session;
                 })
-                // 按最近消息时间倒序排列（最新的在最前面）
                 .sorted((a, b) -> {
                     String timeA = (String) a.get("last_msg");
                     String timeB = (String) b.get("last_msg");
@@ -670,7 +667,7 @@ public class QAChatController {
     }
 
     /**
-     * 获取指定会话的消息（按项目隔离，兼容 project_id 为 NULL 的历史记录）
+     * 获取指定会话的消息（严格按项目隔离）
      */
     @GetMapping("/session/{sessionId}")
     public List<QARecord> getSession(@PathVariable String sessionId) {
@@ -678,15 +675,14 @@ public class QAChatController {
         LambdaQueryWrapper<QARecord> wrapper = new LambdaQueryWrapper<QARecord>()
                 .eq(QARecord::getSessionId, sessionId);
         if (projectId != null) {
-            wrapper.and(w -> w.eq(QARecord::getProjectId, projectId)
-                              .or().isNull(QARecord::getProjectId));
+            wrapper.eq(QARecord::getProjectId, projectId);
         }
         wrapper.orderByAsc(QARecord::getCreatedAt);
         return qaRecordMapper.selectList(wrapper);
     }
 
     /**
-     * 删除指定会话的所有消息记录（按项目隔离，兼容 project_id 为 NULL 的历史记录）
+     * 删除指定会话的所有消息记录（严格按项目隔离）
      */
     @DeleteMapping("/session/{sessionId}")
     public Map<String, Object> deleteSession(@PathVariable String sessionId) {
@@ -694,11 +690,11 @@ public class QAChatController {
         LambdaQueryWrapper<QARecord> wrapper = new LambdaQueryWrapper<QARecord>()
                 .eq(QARecord::getSessionId, sessionId);
         if (projectId != null) {
-            wrapper.and(w -> w.eq(QARecord::getProjectId, projectId)
-                              .or().isNull(QARecord::getProjectId));
+            wrapper.eq(QARecord::getProjectId, projectId);
         }
         int deleted = qaRecordMapper.delete(wrapper);
         return Map.of("message", "已删除会话 " + sessionId + "（" + deleted + " 条记录）");
     }
 }
+
 
