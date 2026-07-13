@@ -231,8 +231,12 @@ public class QAChatController {
 
         SseEmitter emitter = new SseEmitter(300_000L); // 5分钟超时
         final String finalSessionId = sessionId;
+        final org.springframework.web.context.request.RequestAttributes requestAttributes = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
 
         streamExecutor.execute(() -> {
+            if (requestAttributes != null) {
+                org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(requestAttributes);
+            }
             try {
                 // 1. 知识检索
                 int maxEntries = settingService.getInt("qa_max_entries", 20);
@@ -316,6 +320,7 @@ public class QAChatController {
                     record.setSessionId(finalSessionId);
                     record.setSources(objectMapper.writeValueAsString(buildSourceList(relevantEntries)));
                     record.setUserName("分析人员");
+                    record.setCreatedAt(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
                     qaRecordMapper.insert(record);
                 } catch (Exception e) {
                     log.warn("保存问答记录失败: {}", e.getMessage());
@@ -330,6 +335,8 @@ public class QAChatController {
                             .data(objectMapper.writeValueAsString(err)));
                 } catch (Exception ignored) {}
                 emitter.completeWithError(e);
+            } finally {
+                org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
             }
         });
 

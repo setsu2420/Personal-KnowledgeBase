@@ -1,8 +1,8 @@
 <template>
   <div class="smart-qa">
-    <el-row :gutter="16">
+    <div class="qa-layout">
       <!-- 左侧：对话历史 -->
-      <el-col :span="6">
+      <div :class="['session-sidebar', { collapsed: isHistoryCollapsed }]">
         <div class="session-panel">
           <div class="panel-header">
             <span>会话历史</span>
@@ -24,13 +24,26 @@
             <el-empty v-if="sessions.length === 0" description="暂无会话" :image-size="60" />
           </div>
         </div>
-      </el-col>
+      </div>
 
       <!-- 右侧：对话区 -->
-      <el-col :span="18">
+      <div class="chat-main">
         <div class="chat-panel">
           <div class="chat-header">
-            <span class="chat-title">智能问答</span>
+            <div class="chat-header-left">
+              <el-button 
+                class="toggle-sidebar-btn" 
+                type="text" 
+                @click="isHistoryCollapsed = !isHistoryCollapsed"
+                :title="isHistoryCollapsed ? '展开历史会话' : '收起历史会话'"
+              >
+                <el-icon size="18">
+                  <Expand v-if="isHistoryCollapsed" />
+                  <Fold v-else />
+                </el-icon>
+              </el-button>
+              <span class="chat-title">智能问答</span>
+            </div>
             <div class="chat-header-right">
               <el-switch v-model="streamEnabled" size="small" active-text="流式" inactive-text="普通" @change="onStreamToggle" />
               <span class="chat-hint">语义检索 · 多文档交叉验证 · 来源溯源</span>
@@ -165,8 +178,8 @@
             </div>
           </div>
         </div>
-      </el-col>
-    </el-row>
+      </div>
+    </div>
     <!-- 图片预览弹窗 -->
     <el-dialog v-model="previewVisible" width="fit-content" top="5vh" :show-close="true" class="image-preview-dialog" append-to-body>
       <img :src="previewUrl" class="preview-full-image" alt="图片预览" />
@@ -176,7 +189,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick } from 'vue'
-import { Delete, DocumentCopy, Document } from '@element-plus/icons-vue'
+import { Delete, DocumentCopy, Document, Fold, Expand } from '@element-plus/icons-vue'
 import { askQuestion as askQuestionApi, askQuestionStream, getQAChatSessions, getQAChatSession, deleteQAChatSession, getMediaUrl, getSettings, updateSettings, getDocuments } from '../../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderPreviewMarkdown } from '../../utils/previewFormatting'
@@ -202,6 +215,7 @@ const expandedImages = ref<Set<number>>(new Set())
 const previewVisible = ref(false)
 const previewUrl = ref('')
 const streamEnabled = ref(true) // 流式回答开关，默认开启
+const isHistoryCollapsed = ref(false) // 历史会话收起状态
 
 // @mention state
 const mentionVisible = ref<boolean>(false)
@@ -550,6 +564,13 @@ onMounted(async () => {
 
 <style scoped>
 .smart-qa { background: white; border-radius: 8px; padding: 16px; }
+.qa-layout { display: flex; gap: 16px; width: 100%; align-items: flex-start; }
+.session-sidebar { width: 25%; transition: all 0.3s ease; overflow: hidden; flex-shrink: 0; }
+.session-sidebar.collapsed { width: 0; margin-right: -16px; opacity: 0; pointer-events: none; }
+.chat-main { flex: 1; min-width: 0; transition: all 0.3s ease; }
+.chat-header-left { display: flex; align-items: center; gap: 8px; }
+.toggle-sidebar-btn { padding: 0; min-height: unset; color: #64748B; cursor: pointer; margin-right: 4px; }
+.toggle-sidebar-btn:hover { color: #3b82f6; }
 
 .session-panel {
   border: 1px solid #E2E8F0;
