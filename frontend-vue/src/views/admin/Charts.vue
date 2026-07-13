@@ -435,7 +435,7 @@ async function handleFileSelect(uploadFileObj: UploadFile, fileType: 'image' | '
   formData.append('fileType', fileType)
 
   try {
-    const res = await uploadFile(formData, '/api/upload/')
+    const res = await uploadFile(formData, '/upload/')
     if (tracker.cancelled) return
 
     if (res.data?.status === 'success' || res.data?.status === 'skipped') {

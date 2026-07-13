@@ -39,6 +39,28 @@
                       <div class="doc-cover-wrapper chart-cover" style="border-bottom: none;">
                         <img :src="getDocFileUrl(doc.id)" class="doc-cover-img" alt="Chart Preview" loading="lazy" />
                       </div>
+                      <!-- 图表库直接删除功能 -->
+                      <div class="chart-actions">
+                        <el-button
+                          v-if="pendingDeleteId === doc.id"
+                          type="danger"
+                          size="small"
+                          @click.stop="confirmDelete(doc)"
+                          class="chart-delete-confirm-btn"
+                        >
+                          确认删除
+                        </el-button>
+                        <el-button
+                          v-else
+                          size="small"
+                          circle
+                          type="danger"
+                          @click.stop="armDelete(doc.id)"
+                          class="chart-delete-btn"
+                        >
+                          <el-icon><Delete /></el-icon>
+                        </el-button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -55,6 +77,29 @@
                     >
                       <div class="chart-table-header">
                         <span class="chart-table-title">{{ doc.title }}</span>
+                        <!-- 数据表格直接删除功能 -->
+                        <div class="chart-table-actions">
+                          <el-button
+                            v-if="pendingDeleteId === doc.id"
+                            type="danger"
+                            size="small"
+                            plain
+                            @click.stop="confirmDelete(doc)"
+                            style="padding: 2px 6px; min-height: unset; font-size: 11px;"
+                          >
+                            确认
+                          </el-button>
+                          <el-button
+                            v-else
+                            size="small"
+                            text
+                            type="danger"
+                            @click.stop="armDelete(doc.id)"
+                            style="padding: 0; min-height: unset;"
+                          >
+                            <el-icon><Delete /></el-icon>
+                          </el-button>
+                        </div>
                       </div>
                       <div class="table-preview-mini" v-html="renderTablePreview(doc.tableMarkdown)"></div>
                     </div>
@@ -332,12 +377,6 @@ function renderTablePreview(markdown: string): string {
 .doc-preview.horizontal-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
-.chart-card {
-  flex-shrink: 0;
-  width: 220px;
-  height: 150px;
-  cursor: pointer;
-}
 .chart-cover {
   height: 100%;
 }
@@ -509,6 +548,40 @@ function renderTablePreview(markdown: string): string {
   margin-bottom: 8px;
   padding-left: 2px;
 }
+.chart-card {
+  position: relative;
+  flex-shrink: 0;
+  width: 220px;
+  height: 150px;
+  cursor: pointer;
+}
+.chart-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+  z-index: 10;
+}
+.chart-card:hover .chart-actions {
+  opacity: 1;
+}
+.chart-delete-btn {
+  background: rgba(239, 68, 68, 0.9) !important;
+  border-color: rgba(239, 68, 68, 0.9) !important;
+  color: white !important;
+}
+.chart-delete-btn:hover {
+  background: #dc2626 !important;
+  transform: scale(1.05);
+}
+.chart-delete-confirm-btn {
+  font-size: 11px !important;
+  padding: 4px 8px !important;
+  background: #dc2626 !important;
+  border-color: #dc2626 !important;
+  color: white !important;
+}
 .chart-table-card {
   flex-shrink: 0;
   width: 320px;
@@ -524,13 +597,24 @@ function renderTablePreview(markdown: string): string {
   background: var(--color-bg-secondary);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
 }
 .chart-table-title {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
   color: var(--color-text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.chart-table-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
 }
 </style>

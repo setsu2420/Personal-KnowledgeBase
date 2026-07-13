@@ -210,13 +210,14 @@ export function askQuestionStream(
     }
     const reader = response.body?.getReader()
     if (!reader) throw new Error('No reader')
+    const actualReader = reader
 
     const decoder = new TextDecoder()
     let buffer = ''
     let currentEvent = ''
 
     function read() {
-      reader.read().then(({ done, value }) => {
+      actualReader.read().then(({ done, value }) => {
         if (done) return
 
         buffer += decoder.decode(value, { stream: true })

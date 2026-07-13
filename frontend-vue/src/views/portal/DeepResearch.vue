@@ -207,9 +207,9 @@ async function downloadPdf() {
     const opt = {
       margin: [12, 12, 12, 12] as [number, number, number, number],
       filename: `${selectedTask.value.topic || '深度研究报告'}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
+      image: { type: 'jpeg' as const, quality: 0.98 },
       html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const }
     }
     await html2pdf().set(opt).from(element).save()
     ElMessage.success('PDF 下载成功')

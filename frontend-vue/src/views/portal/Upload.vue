@@ -385,7 +385,7 @@ async function submitUpload() {
   formData.append('sourceOrigin', form.sourceOrigin)
 
   try {
-    const res = await uploadFile(formData, '/api/upload/batch')
+    const res = await uploadFile(formData, '/upload/batch')
     results.value = res.data.results || []
     ElMessage.success(`上传完成：共${res.data.total}个文件`)
     sendNotification('文件上传完成', `成功处理 ${res.data.total} 个文件`)
