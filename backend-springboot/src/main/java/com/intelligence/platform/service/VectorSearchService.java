@@ -212,62 +212,53 @@ public class VectorSearchService {
         }
 
         float[] queryVector = generateEmbedding(query);
-        // 获取足够多的候选结果
-        int candidateK = Math.min(topK * 15, index.size()); // 扩大候选范围
-        List<VectorIndex.SearchResult> candidates = index.search(queryVector, candidateK);
-
-        log.info("向量搜索 [{}] - 候选: {} 个", mediaType, candidates.size());
-
-        // 1. 应用项目隔离过滤
         Long currentProjectId = projectContext.getCurrentProjectId();
-        List<VectorIndex.SearchResult> afterProjectFilter = candidates.stream()
-                .filter(r -> {
-                    if (currentProjectId == null) return true;
-                    String entryProjectIdStr = r.metadata() != null ? r.metadata().get("projectId") : null;
-                    if (entryProjectIdStr != null) {
-                        try {
-                            return currentProjectId.equals(Long.valueOf(entryProjectIdStr));
-                        } catch (Exception ignored) {}
-                    }
+
+        // 构造 Pre-filtering 过滤器：在计算相似度阶段就把不属于该项目或类型不符的文档过滤掉
+        java.util.function.Predicate<Map<String, String>> filter = meta -> {
+            if (meta == null) return false;
+            // 1. 项目隔离过滤
+            if (currentProjectId != null) {
+                String entryProjectIdStr = meta.get("projectId");
+                if (entryProjectIdStr != null) {
                     try {
-                        KnowledgeEntry entry = knowledgeEntryMapper.selectById(r.id());
-                        if (entry != null) {
-                            if (r.metadata() != null) {
-                                r.metadata().put("projectId", String.valueOf(entry.getProjectId()));
-                            }
-                            return currentProjectId.equals(entry.getProjectId());
+                        if (!currentProjectId.equals(Long.valueOf(entryProjectIdStr))) {
+                            return false;
                         }
-                    } catch (Exception ignored) {}
+                    } catch (Exception e) {
+                        return false;
+                    }
+                } else {
                     return false;
-                })
+                }
+            }
+            // 2. 媒体类型过滤
+            if (mediaType != null) {
+                String type = meta.get("mediaType");
+                if (!mediaType.equals(type)) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        // 直接获取前 topK 个符合过滤条件的匹配项（避免 post-filtering 导致结果数量骤降甚至归零）
+        List<VectorIndex.SearchResult> results = index.search(queryVector, topK, filter);
+
+        // 应用阈值过滤
+        List<VectorIndex.SearchResult> filtered = results.stream()
+                .filter(r -> r.score() >= threshold)
                 .toList();
 
-        // 2. 应用媒体类型过滤
-        List<VectorIndex.SearchResult> afterTypeFilter;
-        if (mediaType != null) {
-            afterTypeFilter = afterProjectFilter.stream()
-                    .filter(r -> {
-                        String type = r.metadata() != null ? r.metadata().get("mediaType") : null;
-                        return mediaType.equals(type);
-                    })
-                    .toList();
-            log.info("向量搜索 [{}] - 类型过滤后: {} 个", mediaType, afterTypeFilter.size());
-        } else {
-            afterTypeFilter = afterProjectFilter;
-        }
+        log.info("向量检索 [{}] - Pre-filtering 后找到: {} 个, 相似度阈值过滤(>={})后返回: {} 个", 
+                 mediaType, results.size(), threshold, filtered.size());
 
-        // 打印所有候选结果的分数（用于调试）
         if (log.isDebugEnabled()) {
-            for (int i = 0; i < Math.min(10, afterTypeFilter.size()); i++) {
-                var r = afterTypeFilter.get(i);
+            for (int i = 0; i < filtered.size(); i++) {
+                var r = filtered.get(i);
                 log.debug("  [{}] 分数={:.3f}, title={}", i + 1, r.score(), r.metadata().get("title"));
             }
         }
-
-        // 3. 应用阈值过滤
-        List<VectorIndex.SearchResult> filtered = afterTypeFilter.stream()
-                .filter(r -> r.score() >= threshold)
-                .toList();
 
         log.info("向量搜索 [{}] - 阈值过滤后(>={}): {} 个", mediaType, threshold, filtered.size());
 

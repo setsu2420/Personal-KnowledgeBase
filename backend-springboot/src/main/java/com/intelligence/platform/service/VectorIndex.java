@@ -98,6 +98,44 @@ public class VectorIndex {
     }
 
     /**
+     * 搜索最相似的 topK 个向量（支持传入自定义过滤器，实现 Pre-filtering 从而避免 Post-filtering 丢结果的问题）
+     * @param query 查询向量
+     * @param topK 返回数量
+     * @param filter 过滤器
+     * @return 搜索结果列表（id, score, metadata）
+     */
+    public List<SearchResult> search(float[] query, int topK, java.util.function.Predicate<Map<String, String>> filter) {
+        if (vectors.isEmpty() || dimension == 0) {
+            return List.of();
+        }
+
+        float[] normalizedQuery = l2Normalize(query);
+        PriorityQueue<SearchResult> heap = new PriorityQueue<>(
+                Comparator.comparingDouble(r -> r.score));
+
+        for (Map.Entry<Long, float[]> entry : vectors.entrySet()) {
+            long id = entry.getKey();
+            Map<String, String> meta = metadata.get(id);
+            if (filter != null && !filter.test(meta)) {
+                continue;
+            }
+            float[] vec = entry.getValue();
+            float score = dotProduct(normalizedQuery, vec);
+
+            if (heap.size() < topK) {
+                heap.add(new SearchResult(id, score, meta));
+            } else if (score > heap.peek().score) {
+                heap.poll();
+                heap.add(new SearchResult(id, score, meta));
+            }
+        }
+
+        List<SearchResult> results = new ArrayList<>(heap);
+        results.sort((a, b) -> Float.compare(b.score, a.score));
+        return results;
+    }
+
+    /**
      * 获取索引中的向量数量
      */
     public int size() {
