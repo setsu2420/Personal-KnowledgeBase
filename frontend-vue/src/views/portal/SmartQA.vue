@@ -47,10 +47,10 @@
                   <Fold v-else />
                 </el-icon>
               </el-button>
-              <span class="chat-title">智能情报助手</span>
+              <span class="chat-title">智能问答</span>
             </div>
             <div class="chat-header-right">
-              <span class="chat-hint">语义检索 · 多文档交叉验证 · 来源溯源</span>
+              <span class="chat-hint">语义检索 · 多文档交叉验证</span>
             </div>
           </div>
 
@@ -76,17 +76,7 @@
                   <template v-else>
                     <div class="assistant-container">
                       <div class="assistant-avatar">
-                        <svg class="sparkle-icon" viewBox="0 0 24 24" width="24" height="24">
-                          <path fill="url(#geminiSparkleGradAvatar)" d="M12 2 C12 7.5 16.5 12 22 12 C16.5 12 12 16.5 12 22 C12 16.5 7.5 12 2 12 C7.5 12 12 7.5 12 2 Z" />
-                          <defs>
-                            <linearGradient id="geminiSparkleGradAvatar" x1="0%" y1="0%" x2="100%" y2="100%">
-                              <stop offset="0%" stop-color="#4285f4" />
-                              <stop offset="40%" stop-color="#9b51e0" />
-                              <stop offset="70%" stop-color="#e94235" />
-                              <stop offset="100%" stop-color="#fabb05" />
-                            </linearGradient>
-                          </defs>
-                        </svg>
+                        <div class="avatar-circle ai-avatar">AI</div>
                       </div>
                       
                       <div class="assistant-bubble">
@@ -186,38 +176,7 @@
 
               <!-- Welcome screen -->
               <div v-if="messages.length === 0" class="welcome-wrapper">
-                <div class="welcome-header">
-                  <div class="sparkle-welcome-wrapper">
-                    <svg class="sparkle-large" viewBox="0 0 24 24" width="64" height="64">
-                      <path fill="url(#geminiSparkleGradLarge)" d="M12 2 C12 7.5 16.5 12 22 12 C16.5 12 12 16.5 12 22 C12 16.5 7.5 12 2 12 C7.5 12 12 7.5 12 2 Z" />
-                      <defs>
-                        <linearGradient id="geminiSparkleGradLarge" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" stop-color="#4285f4" />
-                          <stop offset="40%" stop-color="#9b51e0" />
-                          <stop offset="70%" stop-color="#e94235" />
-                          <stop offset="100%" stop-color="#fabb05" />
-                        </linearGradient>
-                      </defs>
-                    </svg>
-                  </div>
-                  <h1 class="welcome-title">您好，我是您的智能问答助手</h1>
-                  <p class="welcome-subtitle">我可以帮您检索项目文档、分析数据、提炼核心观点，请随时向我提问。</p>
-                </div>
-                
-                <div class="suggestion-grid">
-                  <div 
-                    v-for="(item, idx) in suggestions" 
-                    :key="idx" 
-                    class="suggestion-card"
-                    @click="useSuggestion(item)"
-                  >
-                    <div class="card-title">{{ item.text }}</div>
-                    <div class="card-desc">{{ item.desc }}</div>
-                    <div class="card-action-icon">
-                      <el-icon><Right /></el-icon>
-                    </div>
-                  </div>
-                </div>
+                <h1 class="welcome-title">有什么我可以帮您的？</h1>
               </div>
             </div>
           </div>
@@ -319,7 +278,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick } from 'vue'
-import { Delete, DocumentCopy, Document, Fold, Expand, Right } from '@element-plus/icons-vue'
+import { Delete, DocumentCopy, Document, Fold, Expand } from '@element-plus/icons-vue'
 import { askQuestion as askQuestionApi, askQuestionStream, getQAChatSessions, getQAChatSession, deleteQAChatSession, getMediaUrl, getSettings, updateSettings, getDocuments } from '../../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { renderPreviewMarkdown } from '../../utils/previewFormatting'
@@ -353,14 +312,6 @@ const mentionQuery = ref<string>('')
 const mentionDocs = ref<any[]>([])
 const mentionSelected = ref<Array<{id: number, title: string}>>([])
 const inputRef = ref<HTMLTextAreaElement | null>(null)
-
-// Suggestion Prompts
-const suggestions = [
-  { text: '🔍 检索文档', desc: '帮我查找项目下包含特定关键词的文件', prompt: '帮我检索项目下关于技术架构的文件' },
-  { text: '📊 分析数据', desc: '提取并总结最近上传的报表和图表', prompt: '提取并总结最近上传的项目报表和图表中的核心数据' },
-  { text: '💡 提炼摘要', desc: '总结当前项目里的所有文件核心要点', prompt: '总结当前项目里所有文件的核心内容 and 研究结论' },
-  { text: '📎 引用定位', desc: '在输入框中输入 @ 引用特定文档并提问', prompt: '请帮我分析已选定的文档 @' }
-]
 
 const mentionFilter = computed(() => {
   if (!mentionQuery.value) return mentionDocs.value.slice(0, 20)
@@ -566,19 +517,6 @@ function triggerMentionInput() {
     inputRef.value?.focus()
     adjustTextareaHeight()
   })
-}
-
-function useSuggestion(item: typeof suggestions[0]) {
-  if (item.text === '📎 引用定位') {
-    question.value = ''
-    triggerMentionInput()
-  } else {
-    question.value = item.prompt
-    nextTick(() => {
-      inputRef.value?.focus()
-      adjustTextareaHeight()
-    })
-  }
 }
 
 /** 流式问答 */
@@ -1055,7 +993,7 @@ onMounted(async () => {
 /* Assistant Message Layout */
 .assistant-container {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   width: 100%;
   align-items: flex-start;
 }
@@ -1065,13 +1003,12 @@ onMounted(async () => {
   margin-top: 4px;
 }
 
-.sparkle-icon {
-  animation: float-sparkle 3s ease-in-out infinite;
-}
-
-@keyframes float-sparkle {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-2px) scale(1.05); }
+.ai-avatar {
+  background: #f0f4f9;
+  color: #1a73e8;
+  border: 1px solid #d3e3fd;
+  box-shadow: none;
+  font-size: 11px;
 }
 
 .assistant-bubble {
@@ -1099,7 +1036,7 @@ onMounted(async () => {
   font-size: 10px;
   display: inline-block;
   margin-left: 6px;
-  color: #9b51e0;
+  color: #1a73e8;
   vertical-align: middle;
   animation: pulse-dot 1.2s infinite ease-in-out;
 }
@@ -1181,111 +1118,18 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 40px 20px 20px;
+  padding: 80px 20px 40px;
   width: 100%;
   box-sizing: border-box;
 }
 
-.welcome-header {
-  text-align: center;
-  margin-bottom: 40px;
-}
-
-.sparkle-welcome-wrapper {
-  margin-bottom: 20px;
-  display: flex;
-  justify-content: center;
-}
-
-.sparkle-large {
-  animation: float-sparkle-large 4s ease-in-out infinite;
-}
-
-@keyframes float-sparkle-large {
-  0%, 100% { transform: translateY(0) rotate(0deg); }
-  50% { transform: translateY(-4px) rotate(5deg); }
-}
-
 .welcome-title {
-  font-size: 28px;
-  font-weight: 700;
-  margin: 0 0 12px;
-  background: linear-gradient(90deg, #4285f4, #9b51e0, #e94235, #fabb05);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-size: 200% auto;
-  animation: gradient-text 8s ease infinite;
-}
-
-@keyframes gradient-text {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-
-.welcome-subtitle {
-  font-size: 15px;
-  color: #5f6368;
-  margin: 0;
-  line-height: 1.6;
-}
-
-.suggestion-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-  width: 100%;
-}
-
-.suggestion-card {
-  background: #f0f4f9;
-  border-radius: 16px;
-  padding: 20px;
-  cursor: pointer;
-  position: relative;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  border: 1px solid transparent;
-}
-
-.suggestion-card:hover {
-  background: #e1e4e8;
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.03);
-}
-
-.card-title {
-  font-size: 14px;
+  font-size: 26px;
   font-weight: 600;
   color: #1f1f1f;
-  margin-bottom: 6px;
-}
-
-.card-desc {
-  font-size: 12px;
-  color: #5f6368;
-  line-height: 1.5;
-}
-
-.card-action-icon {
-  position: absolute;
-  bottom: 16px;
-  right: 16px;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #5f6368;
-  opacity: 0;
-  transition: all 0.2s ease;
-}
-
-.suggestion-card:hover .card-action-icon {
-  opacity: 1;
-  background: white;
-  color: #1a73e8;
+  margin: 0;
+  text-align: center;
+  letter-spacing: -0.5px;
 }
 
 
@@ -1327,7 +1171,7 @@ onMounted(async () => {
   resize: none;
   font-family: inherit;
   font-size: 15px;
-  line-height: 1.5;
+  line-5height: 1.5;
   color: #1f1f1f;
   padding: 4px 8px;
   box-sizing: border-box;
