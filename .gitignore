@@ -75,3 +75,5 @@ backend-springboot/*.sh
 src-tauri/binaries/
 *.jar
 !backend-springboot/target/*.jar
+dist/
+src-tauri/gen/schemas/

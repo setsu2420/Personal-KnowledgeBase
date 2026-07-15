@@ -1,6 +1,7 @@
 import { marked, Renderer } from 'marked'
 import mermaid from 'mermaid'
 import katex from 'katex'
+import 'katex/dist/katex.min.css'
 
 // 初始化 Mermaid（仅一次）
 let mermaidInitialized = false

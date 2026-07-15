@@ -42,7 +42,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
         .menu(&menu)
-        .tooltip("智能情报分析平台")
+        .tooltip("个人知识库助手")
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show_hide" => toggle_window_visibility(&app),
             "restart_backend" => restart_backend(&app),
