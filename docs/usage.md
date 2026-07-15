@@ -2,8 +2,8 @@
 
 ## 技术栈
 
-- **后端**：Spring Boot 4.1 + MyBatis-Plus + SQLite
-- **前端**：Vue 3 + TypeScript + Element Plus + Vite
+- **后端**：Spring Boot 4.1 + MyBatis-Plus + MySQL 8.0
+- **前端**：Vue 3.5 + TypeScript + Element Plus + Vite
 
 ## 快速启动
 
@@ -54,7 +54,7 @@ npm run build
 | 仪表盘 | http://localhost:5173/admin |
 | 动态信息 | http://localhost:5173/admin/info-dynamic |
 | 研究报告 | http://localhost:5173/admin/reports |
-| 图书库 | http://localhost:5173/admin/translations |
+| 译丛译著库 | http://localhost:5173/admin/translations |
 | 图表 | http://localhost:5173/admin/charts |
 | 项目库 | http://localhost:5173/admin/projects |
 | 组织架构 | http://localhost:5173/admin/org |
@@ -108,18 +108,18 @@ npm run build
 │   │   └── router/         # Vue Router 路由配置
 │   ├── vite.config.ts
 │   └── package.json
-├── data/                   # SQLite 数据库
-│   └── app.db
 ├── config/                 # 配置文件
 │   └── mcporter.json
-└── docs/                   # 项目文档
+├── init-db/                 # MySQL 初始化脚本
+├── docs/                    # 项目文档
+└── docker-compose.yml       # Docker 部署
 ```
 
 ## 数据库
 
-SQLite 数据库文件：`data/app.db`
+MySQL 数据库：`intelligence_platform`
 
-Spring Boot 后端通过相对路径 `../data/app.db`（从 `backend-springboot/` 出发）访问数据库。
+初始化脚本位于 `init-db/` 目录。后端通过 `application.properties` 中配置的 JDBC 连接串访问数据库，默认为 `localhost:3306`。
 
 ## Web 模式使用指南
 
@@ -127,20 +127,16 @@ Web 模式允许用户通过浏览器直接访问平台，无需安装 Tauri 桌
 
 ### 启动方式
 
-#### 方式一：一键启动（推荐）
+#### 方式一：一键启动脚本
 
 ```bash
-./start-web.sh
+./start.sh
 ```
 
-该脚本会自动完成以下操作：
-1. 检查 MySQL 服务状态，未运行则自动启动
-2. 检查 `intelligence_platform` 数据库，不存在则自动创建
-3. 后台启动 Spring Boot 后端服务（端口 8080）
-4. 等待后端健康检查通过
-5. 后台启动 Vue 前端开发服务器（端口 5173）
-
-启动完成后终端会显示访问地址和进程 PID。
+该脚本支持以下模式：
+- `./start.sh web` — 后端 + 前端（默认）
+- `./start.sh dev` — 后端 + 解析服务 + 前端
+- `./start.sh prod` — 仅后端
 
 #### 方式二：手动分别启动
 

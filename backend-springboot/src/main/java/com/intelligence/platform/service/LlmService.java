@@ -19,6 +19,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
@@ -421,6 +422,14 @@ public class LlmService {
                 || ("custom".equals(config.getProvider()) && "anthropic_messages".equals(config.getApiMode()));
 
         String body = buildStreamChatBody(config, systemPrompt, userMessage, isAnthropicWire);
+        executeStreamChat(config, body, isAnthropicWire, chunkConsumer);
+    }
+
+    /**
+     * 执行SSE流式HTTP请求（抽取的公共方法，供 streamChat 和 streamChatWithHistory 复用）
+     */
+    private void executeStreamChat(LlmConfig config, String body, boolean isAnthropicWire,
+                                    Consumer<String> chunkConsumer) throws Exception {
         String url = resolveChatUrl(config);
         String authHeader = buildAuthHeader(config);
 
@@ -484,6 +493,60 @@ public class LlmService {
             return;
         }
         streamChat(config, systemPrompt, userMessage, chunkConsumer);
+    }
+
+    /**
+     * 带对话历史的多轮流式对话
+     * @param history 历史消息列表，每项含 role("user"|"assistant") 和 content
+     */
+    public void streamChatWithHistory(String systemPrompt, String userMessage,
+                                       List<Map<String, String>> history,
+                                       Consumer<String> chunkConsumer) throws Exception {
+        LlmConfig config = getActiveChatConfig();
+        if (config == null) {
+            chunkConsumer.accept("错误：未配置LLM。请在后台系统配置中添加并启用LLM。");
+            return;
+        }
+        streamChatWithHistory(config, systemPrompt, userMessage, history, chunkConsumer);
+    }
+
+    private void streamChatWithHistory(LlmConfig config, String systemPrompt, String userMessage,
+                                        List<Map<String, String>> history,
+                                        Consumer<String> chunkConsumer) throws Exception {
+        int maxTokens = (config.getMaxContextSize() != null && config.getMaxContextSize() > 0)
+                ? config.getMaxContextSize() : 4096;
+        boolean isAnthropicWire = "anthropic".equals(config.getProvider())
+                || ("custom".equals(config.getProvider()) && "anthropic_messages".equals(config.getApiMode()));
+
+        ObjectNode root = mapper.createObjectNode();
+        root.put("model", config.getModel() != null ? config.getModel() : "gpt-3.5-turbo");
+        root.put("stream", true);
+        root.put("max_tokens", maxTokens);
+
+        ArrayNode messages = root.putArray("messages");
+        if (systemPrompt != null && !systemPrompt.isEmpty() && !isAnthropicWire) {
+            messages.addObject().put("role", "system").put("content", systemPrompt);
+        }
+        if (isAnthropicWire && systemPrompt != null && !systemPrompt.isEmpty()) {
+            root.put("system", systemPrompt);
+        }
+
+        // 插入历史对话
+        if (history != null) {
+            for (Map<String, String> h : history) {
+                String role = h.get("role");
+                String content = h.get("content");
+                if (role != null && content != null) {
+                    messages.addObject().put("role", role).put("content", content);
+                }
+            }
+        }
+
+        // 当前用户消息
+        messages.addObject().put("role", "user").put("content", userMessage);
+
+        String body = mapper.writeValueAsString(root);
+        executeStreamChat(config, body, isAnthropicWire, chunkConsumer);
     }
 
     private String buildStreamChatBody(LlmConfig config, String systemPrompt, String userMessage,

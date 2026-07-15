@@ -64,6 +64,15 @@ public class VectorIndex {
     }
 
     /**
+     * 清空索引中的所有向量和元数据
+     */
+    public synchronized void clear() {
+        vectors.clear();
+        metadata.clear();
+        dimension = 0;
+    }
+
+    /**
      * 搜索最相似的 topK 个向量
      * @param query 查询向量
      * @param topK 返回数量
@@ -140,6 +149,13 @@ public class VectorIndex {
      */
     public int size() {
         return vectors.size();
+    }
+
+    /**
+     * 获取索引中所有向量的ID列表（用于无效条目清理）
+     */
+    public List<Long> getAllIds() {
+        return new ArrayList<>(vectors.keySet());
     }
 
     /**

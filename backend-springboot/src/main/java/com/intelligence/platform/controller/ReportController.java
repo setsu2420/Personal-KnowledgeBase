@@ -51,7 +51,9 @@ public class ReportController {
 
     @GetMapping("/{id}")
     public Report getReport(@PathVariable Long id) {
-        return reportMapper.selectById(id);
+        Report report = reportMapper.selectById(id);
+        if (report != null) projectContext.validateProjectAccess(report.getProjectId(), "报告");
+        return report;
     }
 
     @PostMapping("/")
@@ -69,6 +71,8 @@ public class ReportController {
 
     @DeleteMapping("/{id}")
     public Map<String, Object> deleteReport(@PathVariable Long id) {
+        Report report = reportMapper.selectById(id);
+        if (report != null) projectContext.validateProjectAccess(report.getProjectId(), "报告");
         reportMapper.deleteById(id);
         return Map.of("message", "删除成功");
     }

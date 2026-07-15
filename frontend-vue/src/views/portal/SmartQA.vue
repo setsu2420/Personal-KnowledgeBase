@@ -88,6 +88,18 @@
                         </div>
 
                         <template v-else>
+                          <!-- 思考过程（可折叠） -->
+                          <div v-if="msg.thinking" class="thinking-section">
+                            <div class="thinking-header" @click="toggleThinking(i)">
+                              <span class="thinking-icon">🧠</span>
+                              <span class="thinking-title">推理过程</span>
+                              <span class="thinking-toggle">{{ expandedThinking.has(i) ? '收起' : '展开' }}</span>
+                            </div>
+                            <div v-if="expandedThinking.has(i)" class="thinking-content">
+                              {{ msg.thinking }}
+                            </div>
+                          </div>
+
                           <!-- 文字回答 -->
                           <div class="answer-wrapper">
                             <div class="answer-text markdown-body" v-html="formatText(msg.content, 'assistant')" />
@@ -271,21 +283,22 @@
 
     <!-- 图片预览弹窗 -->
     <el-dialog v-model="previewVisible" width="fit-content" top="5vh" :show-close="true" class="image-preview-dialog" append-to-body>
-      <img :src="previewUrl" class="preview-full-image" alt="图片预览" />
+      <img :src="previewUrl" class="preview-full-image" alt="图片预览" loading="lazy" />
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { Delete, DocumentCopy, Document, Fold, Expand } from '@element-plus/icons-vue'
 import { askQuestion as askQuestionApi, askQuestionStream, getQAChatSessions, getQAChatSession, deleteQAChatSession, getMediaUrl, getSettings, updateSettings, getDocuments } from '../../api'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { renderPreviewMarkdown } from '../../utils/previewFormatting'
+import { renderPreviewMarkdown, runMermaid } from '../../utils/previewFormatting'
 
 interface Message {
   role: 'user' | 'assistant'
   content: string
+  thinking?: string
   confidence?: number
   sources?: Array<{ title: string; library: string; source_name: string; source_origin?: string; index?: number; media_type?: string }>
   tables?: Array<{ id: number; title: string; table_markdown: string; source_origin: string; source_name: string; score: number }>
@@ -301,6 +314,7 @@ const currentSessionId = ref('session_' + Date.now())
 const chatRef = ref<HTMLElement | null>(null)
 const expandedRefs = ref<Set<number>>(new Set())
 const expandedImages = ref<Set<number>>(new Set())
+const expandedThinking = ref<Set<number>>(new Set())
 const previewVisible = ref(false)
 const previewUrl = ref('')
 const streamEnabled = ref(true) // 流式回答开关，默认开启
@@ -394,6 +408,15 @@ function toggleRefs(index: number) {
     expandedRefs.value.delete(index)
   } else {
     expandedRefs.value.add(index)
+  }
+}
+
+/** 切换思考过程展开/折叠 */
+function toggleThinking(index: number) {
+  if (expandedThinking.value.has(index)) {
+    expandedThinking.value.delete(index)
+  } else {
+    expandedThinking.value.add(index)
   }
 }
 
@@ -540,6 +563,19 @@ function askWithStream(q: string) {
         currentSessionId.value = meta.sessionId
       }
     },
+    (thinking) => {
+      // 接收 LLM 推理过程
+      if (!messages.value[msgIndex].thinking) {
+        messages.value[msgIndex].thinking = ''
+      }
+      messages.value[msgIndex].thinking += thinking
+      expandedThinking.value.add(msgIndex)
+      nextTick().then(() => {
+        if (chatRef.value) {
+          chatRef.value.scrollTop = chatRef.value.scrollHeight
+        }
+      })
+    },
     (text) => {
       messages.value[msgIndex].content += text
       nextTick().then(() => {
@@ -683,6 +719,15 @@ onMounted(async () => {
     console.warn('加载流式配置失败，使用默认值', e)
   }
 })
+
+// 监听消息变化，自动渲染 Mermaid 图表
+watch(messages, () => {
+  nextTick(() => {
+    if (chatRef.value) {
+      runMermaid(chatRef.value)
+    }
+  })
+}, { deep: true })
 </script>
 
 <style scoped>

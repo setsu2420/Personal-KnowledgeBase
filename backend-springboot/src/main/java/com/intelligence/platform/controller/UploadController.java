@@ -23,6 +23,10 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @RestController
 @RequestMapping("/api/upload")
 @CrossOrigin(origins = "*")
@@ -55,8 +59,17 @@ public class UploadController {
     @Autowired
     private com.intelligence.platform.mapper.ProjectMapper projectMapper;
 
+    @Autowired
+    private com.intelligence.platform.service.WebScrapeService webScrapeService;
+
+    @Autowired
+    private com.intelligence.platform.service.TwoStepIngestService twoStepIngestService;
+
     @Autowired(required = false)
     private com.intelligence.platform.mapper.SettingMapper settingMapper;
+
+    private static final Logger log = LoggerFactory.getLogger(UploadController.class);
+    private final ObjectMapper mapper = new ObjectMapper();
 
     @Value("${upload.dir:./uploads}")
     private String uploadDir;
@@ -137,7 +150,7 @@ public class UploadController {
     private static final java.util.List<java.util.Map<String, String>> LIBRARIES = java.util.List.of(
             java.util.Map.of("value", "report", "label", "研究报告库"),
             java.util.Map.of("value", "dynamic", "label", "动态信息库"),
-            java.util.Map.of("value", "translation", "label", "图书库"),
+            java.util.Map.of("value", "translation", "label", "译丛译著库"),
             java.util.Map.of("value", "chart", "label", "图表数据库"),
             java.util.Map.of("value", "policy", "label", "政策文件库"),
             java.util.Map.of("value", "news", "label", "新闻资讯库")
@@ -308,7 +321,7 @@ public class UploadController {
 
     /**
      * 从URL上传文档（用于Blog/网页等动态信息）
-     * 抓取网页内容，保存URL并解析
+     * 使用 WebScrapeService 抓取网页内容，并支持 Two-Step CoT 词条抽取
      */
     @PostMapping("/from-url")
     public Map<String, Object> uploadFromUrl(
@@ -317,7 +330,8 @@ public class UploadController {
             @RequestParam(defaultValue = "") String categoryL1,
             @RequestParam(defaultValue = "") String categoryL2,
             @RequestParam(defaultValue = "dynamic") String docType,
-            @RequestParam(defaultValue = "") String sourceOrigin) throws Exception {
+            @RequestParam(defaultValue = "") String sourceOrigin,
+            @RequestParam(defaultValue = "false") boolean useTwoStep) throws Exception {
 
         // 验证URL格式
         if (url == null || url.isEmpty() || (!url.startsWith("http://") && !url.startsWith("https://"))) {
@@ -333,38 +347,32 @@ public class UploadController {
                     "existing_id", existing.get(0).getId());
         }
 
-        // 抓取网页内容
-        String content;
-        String fetchedTitle;
+        // 使用 WebScrapeService 抓取网页内容（Readability-style 正文提取 + Markdown 转换）
+        com.intelligence.platform.service.WebScrapeService.ScrapeResult scrapeResult;
         try {
-            java.net.URL urlObj = new java.net.URL(url);
-            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) urlObj.openConnection();
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-            conn.setConnectTimeout(30000);
-            conn.setReadTimeout(30000);
-
-            byte[] bytes = conn.getInputStream().readAllBytes();
-            content = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
-
-            // 提取标题
-            fetchedTitle = extractTitle(content);
-            if (title == null || title.isEmpty()) {
-                title = fetchedTitle.isEmpty() ? url : fetchedTitle;
-            }
+            scrapeResult = webScrapeService.scrape(url);
         } catch (Exception e) {
             return Map.of("status", "error", "message", "抓取URL失败: " + e.getMessage());
         }
 
-        // 生成内容哈希
-        String fileHash = sha256(content.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        // 提取标题（优先级: 用户指定 > 网页提取 > URL）
+        if (title == null || title.isEmpty()) {
+            title = !scrapeResult.title().isBlank() ? scrapeResult.title() : url;
+        }
 
-        // 保存HTML内容到文件
+        // 自动补充来源信息
+        if (sourceOrigin == null || sourceOrigin.isEmpty()) {
+            sourceOrigin = scrapeResult.author().isBlank() ? url
+                    : scrapeResult.author() + " - " + url;
+        }
+
+        // 保存抓取的 Markdown 内容到文件
         Path sourcesRoot = sourceIdentityService.getSourcesRoot();
-        String sourcePath = sourceIdentityService.computeSourcePath(
-                title.replaceAll("[^a-zA-Z0-9\\u4e00-\\u9fa5]", "_") + ".html", categoryL1, categoryL2);
+        String safeName = title.replaceAll("[^a-zA-Z0-9\\u4e00-\\u9fa5]", "_") + ".md";
+        String sourcePath = sourceIdentityService.computeSourcePath(safeName, categoryL1, categoryL2);
         Path targetPath = sourcesRoot.resolve(sourcePath);
         Files.createDirectories(targetPath.getParent());
-        Files.writeString(targetPath, content);
+        Files.writeString(targetPath, scrapeResult.content());
 
         String sourceIdentity = sourceIdentityService.sourceIdentityForPath(targetPath.toString());
         String folderContext = sourceIdentityService.folderContextForPath(targetPath.toString());
@@ -376,22 +384,38 @@ public class UploadController {
         doc.setCategoryL2(categoryL2);
         doc.setDocType(docType);
         doc.setFilePath(targetPath.toString());
-        doc.setFileHash(fileHash);
+        doc.setFileHash(scrapeResult.fileHash());
         doc.setStatus("parsed");
-        doc.setSourceOrigin(sourceOrigin.isEmpty() ? url : sourceOrigin);
+        doc.setSourceOrigin(sourceOrigin);
         doc.setSourcePath(sourcePath);
         doc.setSourceIdentity(sourceIdentity);
         doc.setFolderContext(folderContext);
         doc.setProjectId(projectContext.getCurrentProjectId());
         doc.setUrl(url);
+        // 保存元数据（作者、日期、描述）
+        doc.setMetaInfo(mapper.writeValueAsString(scrapeResult.metadata()));
         documentMapper.insert(doc);
 
-        // LLM抽取知识词条
+        // 词条抽取：支持 Two-Step CoT 和传统模式
         int entryCount = 0;
+        String ingestMode = useTwoStep ? "two-step-cot" : "standard";
         try {
-            List<KnowledgeEntry> entries = documentParseService.parseAndExtract(doc.getId());
-            entryCount = entries.size();
+            List<KnowledgeEntry> entries;
+            if (useTwoStep) {
+                // Two-Step CoT: LLM先分析结构，再生成词条（质量更高）
+                com.intelligence.platform.service.TwoStepIngestService.IngestResult result = twoStepIngestService.ingestTwoStep(
+                        scrapeResult.content(), doc, getDocTypeLabel(docType));
+                entries = result.entries();
+                entryCount = result.totalEntries();
+                log.info("Two-step CoT ingest for URL '{}': {} entries ({} new, {} updated). Analysis: {}",
+                        url, result.totalEntries(), result.newEntries(), result.updatedEntries(), 
+                        result.analysisSummary().length() + " chars");
+            } else {
+                entries = documentParseService.parseAndExtract(doc.getId());
+                entryCount = entries.size();
+            }
         } catch (Exception e) {
+            log.warn("LLM extraction failed for URL '{}': {}", url, e.getMessage());
             entryCount = -1;
         }
 
@@ -399,10 +423,23 @@ public class UploadController {
                 "id", doc.getId(),
                 "title", title,
                 "url", url,
-                "entry_count", entryCount,
+                "metadata", Map.of(
+                        "author", scrapeResult.author(),
+                        "date", scrapeResult.date(),
+                        "content_length", scrapeResult.content().length(),
+                        "entry_count", entryCount,
+                        "ingest_mode", ingestMode
+                ),
                 "message", entryCount > 0
-                        ? "URL内容已抓取，LLM已抽取 " + entryCount + " 个知识词条"
-                        : "URL内容已抓取（LLM抽取未完成，请稍后查看词条）");
+                        ? "URL内容已抓取（" + ingestMode + "），已抽取 " + entryCount + " 个知识词条"
+                        : "URL内容已抓取（词条抽取未完成，请稍后查看）");
+    }
+
+    /**
+     * docType → 词条库名（用于 TwoStepIngest）
+     */
+    private String getDocTypeLabel(String docType) {
+        return DOC_TYPE_LABELS.getOrDefault(docType, "动态信息");
     }
 
     /**

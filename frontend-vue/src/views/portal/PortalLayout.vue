@@ -6,7 +6,7 @@
       <div class="top-bar-right">
         <BackendStatus style="margin-right: 8px;" />
         <!-- 项目选择器 -->
-        <el-dropdown trigger="click" @command="handleProjectCommand">
+        <el-dropdown trigger="click" @command="handleProjectCommand" popper-class="project-dropdown-popper">
           <el-button 
             size="small" 
             class="project-select-trigger"
@@ -16,9 +16,26 @@
             <el-icon style="margin-left: 4px;"><ArrowDown /></el-icon>
           </el-button>
           <template #dropdown>
+            <div class="project-dropdown-search">
+              <el-input
+                v-model="projectSearch"
+                placeholder="搜索项目..."
+                size="small"
+                prefix-icon="Search"
+                clearable
+              />
+            </div>
             <el-dropdown-menu>
-              <el-dropdown-item v-for="p in projects" :key="p.id" :command="p.id">
-                {{ p.name }}
+              <el-dropdown-item 
+                v-for="p in filteredProjects" 
+                :key="p.id" 
+                :command="p.id"
+                :class="{ 'is-active': p.id === currentProjectId }"
+              >
+                <span class="project-item-name">{{ p.name }}</span>
+                <span class="project-item-meta" v-if="p.docCount !== undefined">
+                  {{ p.docCount }}文档 · {{ p.entryCount }}词条
+                </span>
               </el-dropdown-item>
               <el-dropdown-item divided command="__new__">
                 + 新建项目
@@ -38,8 +55,13 @@
         <h2>选择一个项目开始工作</h2>
         <p>每个项目的数据完全隔离，互不互通</p>
         <div class="prompt-actions">
-          <el-select v-model="selectedProjectId" placeholder="选择已有项目" style="width: 240px;">
-            <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id" />
+          <el-select v-model="selectedProjectId" placeholder="选择已有项目" style="width: 240px;" filterable>
+            <el-option v-for="p in projects" :key="p.id" :label="p.name" :value="p.id">
+              <span>{{ p.name }}</span>
+              <span style="float: right; color: var(--el-text-color-secondary); font-size: 12px;" v-if="p.docCount !== undefined">
+                {{ p.docCount }}文档
+              </span>
+            </el-option>
           </el-select>
           <el-button type="primary" @click="selectProject" :disabled="!selectedProjectId">进入项目</el-button>
           <el-button @click="showCreateDialog = true">新建项目</el-button>
@@ -98,6 +120,8 @@ interface Project {
   description: string
   status: string
   createdAt: string
+  docCount?: number
+  entryCount?: number
 }
 
 const tabs = [
@@ -113,6 +137,13 @@ const selectedProjectId = ref<number | null>(null)
 const showCreateDialog = ref(false)
 const creating = ref(false)
 const newProject = reactive({ name: '', description: '' })
+const projectSearch = ref('')
+
+const filteredProjects = computed(() => {
+  if (!projectSearch.value.trim()) return projects.value
+  const q = projectSearch.value.toLowerCase()
+  return projects.value.filter(p => p.name.toLowerCase().includes(q))
+})
 
 const currentProjectName = computed(() => {
   if (!currentProjectId.value) return '选择项目'
@@ -310,5 +341,21 @@ onMounted(loadProjects)
 .admin-btn:hover {
   color: #fff;
   background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* 项目下拉搜索 */
+.project-dropdown-search {
+  padding: 8px 12px 4px;
+  border-bottom: 1px solid var(--el-border-color-light);
+  margin-bottom: 4px;
+}
+.project-item-name {
+  font-weight: 500;
+}
+.project-item-meta {
+  display: block;
+  font-size: 11px;
+  color: var(--el-text-color-secondary);
+  margin-top: 2px;
 }
 </style>

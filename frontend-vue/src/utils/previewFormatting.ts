@@ -1,4 +1,19 @@
 import { marked, Renderer } from 'marked'
+import mermaid from 'mermaid'
+import katex from 'katex'
+
+// 初始化 Mermaid（仅一次）
+let mermaidInitialized = false
+function initMermaid() {
+  if (mermaidInitialized) return
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'default',
+    securityLevel: 'loose',
+    fontFamily: 'var(--font-family-base, sans-serif)',
+  })
+  mermaidInitialized = true
+}
 
 marked.setOptions({
   breaks: true,
@@ -145,5 +160,70 @@ export function renderPreviewMarkdown(text: string): string {
     return `${prefix}<span class="preview-mention">${normalizedToken}</span>`
   })
 
-  return marked.parse(highlighted) as string
+  let html = marked.parse(highlighted) as string
+
+  // === Mermaid 图表渲染 ===
+  // Mermaid 11.x 的 render() 返回 Promise，无法在同步 replace 回调中使用
+  // 改为将 mermaid 代码块转为 <pre class="mermaid"> 格式，由调用方在 DOM 插入后调用 mermaid.run()
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, (_match: string, code: string) => {
+    const decoded = code.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/&quot;/g, '"')
+    return `<pre class="mermaid">${decoded}</pre>`
+  })
+
+  // === KaTeX 数学公式渲染 ===
+  // 块级公式 $$...$$
+  html = html.replace(/\$\$([\s\S]*?)\$\$/g, (_match: string, formula: string) => {
+    try {
+      const rendered = katex.renderToString(formula.trim(), {
+        displayMode: true,
+        throwOnError: false,
+        trust: true,
+      })
+      return `<div class="katex-block">${rendered}</div>`
+    } catch (e) {
+      return `<code class="katex-error">$${formula}$</code>`
+    }
+  })
+  // 行内公式 $...$ (避免匹配 $$）
+  html = html.replace(/(?<!\$)\$(?!\$)([^$\n]+?)\$(?!\$)/g, (_match: string, formula: string) => {
+    try {
+      return katex.renderToString(formula.trim(), {
+        displayMode: false,
+        throwOnError: false,
+        trust: true,
+      })
+    } catch (e) {
+      return `<code class="katex-error">$${formula}$</code>`
+    }
+  })
+
+  return html
+}
+
+/**
+ * 在 DOM 容器中运行 Mermaid 渲染。
+ * 应在 v-html 插入 DOM 后调用，例如在 nextTick() 中。
+ * 自动查找容器内的 <pre class="mermaid"> 元素并渲染为 SVG 图表。
+ */
+export async function runMermaid(container: Element): Promise<void> {
+  if (!container) return
+  const mermaidBlocks = container.querySelectorAll('pre.mermaid')
+  if (mermaidBlocks.length === 0) return
+  
+  initMermaid()
+  
+  for (const block of mermaidBlocks) {
+    try {
+      const code = block.textContent || ''
+      const id = 'mermaid-' + Math.random().toString(36).substring(2, 9)
+      const { svg } = await mermaid.render(id, code.trim())
+      const div = document.createElement('div')
+      div.className = 'mermaid-diagram'
+      div.innerHTML = svg
+      block.replaceWith(div)
+    } catch (e) {
+      console.warn('Mermaid render failed:', e)
+      block.classList.add('mermaid-error')
+    }
+  }
 }

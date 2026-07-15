@@ -69,7 +69,10 @@ public class DocumentController {
 
     @GetMapping("/{id}")
     public Document getDocument(@PathVariable Long id) {
-        return documentMapper.selectById(id);
+        Document doc = documentMapper.selectById(id);
+        if (doc == null) return null;
+        projectContext.validateProjectAccess(doc.getProjectId(), "文档");
+        return doc;
     }
 
     @PostMapping("/")
@@ -91,6 +94,8 @@ public class DocumentController {
         if (doc == null) {
             return Map.of("message", "文档不存在");
         }
+        // 校验项目访问权限
+        projectContext.validateProjectAccess(doc.getProjectId(), "文档");
 
         // 1. 删除关联的知识词条（数据库）
         com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.intelligence.platform.entity.KnowledgeEntry> deleteWrapper =
@@ -137,6 +142,8 @@ public class DocumentController {
         if (doc == null) {
             return Map.of("status", "error", "message", "文档不存在");
         }
+        // 校验项目访问权限
+        projectContext.validateProjectAccess(doc.getProjectId(), "文档");
 
         // 删除旧的失败词条
         com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.intelligence.platform.entity.KnowledgeEntry> deleteWrapper =

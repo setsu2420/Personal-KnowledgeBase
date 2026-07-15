@@ -24,7 +24,7 @@
           <el-select v-model="form.library" placeholder="选择目标库" style="width: 100%">
             <el-option label="研究报告库" value="report" />
             <el-option label="动态信息库" value="dynamic" />
-            <el-option label="图书库" value="translation" />
+            <el-option label="译丛译著库" value="translation" />
             <el-option label="图表库" value="chart" />
             <el-option label="政策文件库" value="policy" />
             <el-option label="新闻资讯库" value="news" />

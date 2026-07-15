@@ -10,6 +10,7 @@ fi
 
 # Wait a moment then start backend
 sleep 1
-cd /Users/xiaotianxue/Desktop/個人/软件所/范_副本/backend-springboot
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/backend-springboot"
 echo "Starting Spring Boot backend..."
-./mvnw spring-boot:run -pl .
+./mvnw spring-boot:run

@@ -32,5 +32,19 @@ export default defineConfig({
     target: process.env.TAURI_PLATFORM === 'windows' ? 'chrome105' : 'es2020',
     minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_DEBUG,
+    // 代码分割优化
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes('node_modules/element-plus')) return 'element-plus'
+          if (id.includes('node_modules/echarts')) return 'echarts'
+          if (id.includes('node_modules/mermaid')) return 'mermaid'
+          if (id.includes('node_modules/katex')) return 'katex'
+          if (id.includes('node_modules/marked')) return 'marked'
+        },
+      },
+    },
+    // chunk 大小警告阈值
+    chunkSizeWarningLimit: 1000,
   },
 })

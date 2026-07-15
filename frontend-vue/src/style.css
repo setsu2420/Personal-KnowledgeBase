@@ -81,3 +81,195 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+/* ===== Dark Mode ===== */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-text-primary: #E2E8F0;
+    --color-text-secondary: #94A3B8;
+    --color-text-tertiary: #64748B;
+    --color-bg-primary: #0F172A;
+    --color-bg-secondary: #1E293B;
+    --color-bg-white: #1E293B;
+    --color-border: #334155;
+    --color-border-light: #1E293B;
+    --color-body-bg: #0F172A;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+    
+    /* Primary stays bright for visibility */
+    --color-primary: #60A5FA;
+    --color-primary-light: #1E3A5F;
+    --color-primary-dark: #93C5FD;
+  }
+
+  /* Element Plus dark overrides */
+  .el-card { background: var(--color-bg-secondary) !important; border-color: var(--color-border) !important; }
+  .el-dialog { background: var(--color-bg-secondary) !important; }
+  .el-table { --el-table-bg-color: var(--color-bg-secondary); --el-table-tr-bg-color: var(--color-bg-secondary); }
+  .el-input__wrapper { background: var(--color-bg-primary) !important; }
+  .el-textarea__inner { background: var(--color-bg-primary) !important; color: var(--color-text-primary) !important; }
+}
+
+/* ===== Thinking Section ===== */
+.thinking-section {
+  margin-bottom: 12px;
+  border: 1px solid var(--color-primary-light);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.03), rgba(74, 144, 217, 0.03));
+}
+.thinking-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition-fast);
+}
+.thinking-header:hover { background: rgba(99, 102, 241, 0.06); }
+.thinking-icon { font-size: 14px; }
+.thinking-title { font-size: 12px; font-weight: 600; color: var(--color-info); }
+.thinking-toggle { margin-left: auto; font-size: 11px; color: var(--color-text-tertiary); }
+.thinking-content {
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.7;
+  white-space: pre-wrap;
+  border-top: 1px dashed var(--color-border-light);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* ===== Mermaid Diagrams ===== */
+.mermaid-diagram {
+  margin: 16px 0;
+  padding: 16px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-diagram svg { max-width: 100%; height: auto; }
+.mermaid-error {
+  padding: 12px;
+  background: var(--color-danger-light);
+  border-radius: var(--radius-sm);
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+/* ===== KaTeX Math ===== */
+.katex-block {
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--color-bg-primary);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  text-align: center;
+}
+.katex-error {
+  padding: 2px 6px;
+  background: var(--color-danger-light);
+  border-radius: 3px;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+/* ===== Chat Bubble Improvements ===== */
+.user-bubble {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+  color: #fff;
+  border-radius: 18px 18px 4px 18px;
+  padding: 10px 16px;
+  max-width: 85%;
+  word-break: break-word;
+  box-shadow: var(--shadow-sm);
+}
+.assistant-bubble {
+  background: var(--color-bg-white);
+  border: 1px solid var(--color-border-light);
+  border-radius: 18px 18px 18px 4px;
+  padding: 16px 20px;
+  max-width: 95%;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-fast);
+}
+.assistant-bubble:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* ===== Markdown Body Enhancements ===== */
+.markdown-body {
+  line-height: 1.8;
+  color: var(--color-text-primary);
+}
+.markdown-body code {
+  background: var(--color-bg-secondary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font-family-mono);
+  font-size: 0.9em;
+}
+.markdown-body pre {
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  overflow-x: auto;
+}
+.markdown-body pre code {
+  background: none;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.markdown-body blockquote {
+  border-left: 3px solid var(--color-primary);
+  margin: 12px 0;
+  padding: 8px 16px;
+  background: var(--color-primary-light);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--color-text-secondary);
+}
+.markdown-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 12px 0;
+  font-size: 13px;
+}
+.markdown-body th {
+  background: var(--color-bg-secondary);
+  font-weight: 600;
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  text-align: left;
+}
+.markdown-body td {
+  padding: 6px 12px;
+  border: 1px solid var(--color-border);
+}
+.markdown-body tr:nth-child(even) { background: rgba(0,0,0,0.02); }
+
+/* ===== Typing Cursor Animation ===== */
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.is-streaming .answer-text::after {
+  content: '▊';
+  animation: blink-cursor 1s infinite;
+  color: var(--color-primary);
+  font-weight: bold;
+}
+
+/* ===== Reduced Motion ===== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

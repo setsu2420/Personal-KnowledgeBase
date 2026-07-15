@@ -16,8 +16,16 @@ import org.springframework.stereotype.Service;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @Service
 public class KGService {
+
+    private static final Logger log = LoggerFactory.getLogger(KGService.class);
+
+    @Autowired
+    private com.intelligence.platform.client.KGComputeClient kgComputeClient;
 
     @Autowired
     private KGNodeMapper kgNodeMapper;
@@ -35,16 +43,18 @@ public class KGService {
     // ==================== 项目级查询辅助 ====================
 
     List<KGNode> getProjectNodes() {
-        LambdaQueryWrapper<KGNode> w = new LambdaQueryWrapper<>();
         Long pid = projectContext.getCurrentProjectId();
-        if (pid != null) w.eq(KGNode::getProjectId, pid);
+        if (pid == null) return Collections.emptyList();
+        LambdaQueryWrapper<KGNode> w = new LambdaQueryWrapper<>();
+        w.eq(KGNode::getProjectId, pid);
         return kgNodeMapper.selectList(w);
     }
 
     List<KGEdge> getProjectEdges() {
-        LambdaQueryWrapper<KGEdge> w = new LambdaQueryWrapper<>();
         Long pid = projectContext.getCurrentProjectId();
-        if (pid != null) w.eq(KGEdge::getProjectId, pid);
+        if (pid == null) return Collections.emptyList();
+        LambdaQueryWrapper<KGEdge> w = new LambdaQueryWrapper<>();
+        w.eq(KGEdge::getProjectId, pid);
         return kgEdgeMapper.selectList(w);
     }
 
@@ -52,16 +62,19 @@ public class KGService {
 
     public PageResult<Map<String, Object>> getNodes(int page, int pageSize) {
         Long pid = projectContext.getCurrentProjectId();
+        if (pid == null) {
+            return new PageResult<>(0, page, pageSize, Collections.emptyList());
+        }
 
         LambdaQueryWrapper<KGNode> nodeWrapper = new LambdaQueryWrapper<>();
-        if (pid != null) nodeWrapper.eq(KGNode::getProjectId, pid);
+        nodeWrapper.eq(KGNode::getProjectId, pid);
 
         Page<KGNode> nodePage = kgNodeMapper.selectPage(new Page<>(page, pageSize), nodeWrapper);
         List<KGNode> nodes = nodePage.getRecords();
 
         // 获取当前项目的知识词条，用于富化 keywords/library
         LambdaQueryWrapper<KnowledgeEntry> entryWrapper = new LambdaQueryWrapper<>();
-        if (pid != null) entryWrapper.eq(KnowledgeEntry::getProjectId, pid);
+        entryWrapper.eq(KnowledgeEntry::getProjectId, pid);
         List<KnowledgeEntry> entries = knowledgeEntryMapper.selectList(entryWrapper);
         Map<String, KnowledgeEntry> titleToEntry = entries.stream()
                 .collect(Collectors.toMap(KnowledgeEntry::getTitle, e -> e, (a, b) -> a));
@@ -87,9 +100,12 @@ public class KGService {
 
     public PageResult<KGEdge> getEdges(int page, int pageSize) {
         Long pid = projectContext.getCurrentProjectId();
+        if (pid == null) {
+            return new PageResult<>(0, page, pageSize, Collections.emptyList());
+        }
 
         LambdaQueryWrapper<KGEdge> edgeWrapper = new LambdaQueryWrapper<>();
-        if (pid != null) edgeWrapper.eq(KGEdge::getProjectId, pid);
+        edgeWrapper.eq(KGEdge::getProjectId, pid);
 
         Page<KGEdge> edgePage = kgEdgeMapper.selectPage(new Page<>(page, pageSize), edgeWrapper);
         return new PageResult<>(edgePage.getTotal(), page, pageSize, edgePage.getRecords());
@@ -98,6 +114,11 @@ public class KGService {
     // ==================== 图谱数据 ====================
 
     public Map<String, Object> getGraphData() {
+        Long pid = projectContext.getCurrentProjectId();
+        if (pid == null) {
+            return Map.of("nodes", Collections.emptyList(), "edges", Collections.emptyList());
+        }
+        
         List<KGNode> nodes = getProjectNodes();
         List<KGEdge> edges = getProjectEdges();
 
@@ -108,9 +129,8 @@ public class KGService {
         }
 
         // 获取知识词条用于富化节点信息
-        Long pid = projectContext.getCurrentProjectId();
         LambdaQueryWrapper<KnowledgeEntry> entryWrapper = new LambdaQueryWrapper<>();
-        if (pid != null) entryWrapper.eq(KnowledgeEntry::getProjectId, pid);
+        entryWrapper.eq(KnowledgeEntry::getProjectId, pid);
         List<KnowledgeEntry> entries = knowledgeEntryMapper.selectList(entryWrapper);
         Map<String, KnowledgeEntry> titleToEntry = entries.stream()
                 .collect(Collectors.toMap(KnowledgeEntry::getTitle, e -> e, (a, b) -> a));
@@ -262,10 +282,14 @@ public class KGService {
      */
     private List<KGNode> autoBuildGraph() {
         Long pid = projectContext.getCurrentProjectId();
+        if (pid == null) {
+            log.warn("Project ID is null, skipping graph generation to prevent cross-project leakage.");
+            return Collections.emptyList();
+        }
 
         // 获取当前项目的知识词条 (排除图片和表格类条目)
         LambdaQueryWrapper<KnowledgeEntry> entryWrapper = new LambdaQueryWrapper<>();
-        if (pid != null) entryWrapper.eq(KnowledgeEntry::getProjectId, pid);
+        entryWrapper.eq(KnowledgeEntry::getProjectId, pid);
         entryWrapper.ne(KnowledgeEntry::getEntryType, "image").ne(KnowledgeEntry::getEntryType, "table");
         List<KnowledgeEntry> entries = knowledgeEntryMapper.selectList(entryWrapper);
 
@@ -273,11 +297,9 @@ public class KGService {
             return Collections.emptyList();
         }
 
-        // 清理旧的 KG 数据（当前项目）
-        if (pid != null) {
-            kgNodeMapper.delete(new LambdaQueryWrapper<KGNode>().eq(KGNode::getProjectId, pid));
-            kgEdgeMapper.delete(new LambdaQueryWrapper<KGEdge>().eq(KGEdge::getProjectId, pid));
-        }
+        // 清理旧 of KG 数据（当前项目）
+        kgNodeMapper.delete(new LambdaQueryWrapper<KGNode>().eq(KGNode::getProjectId, pid));
+        kgEdgeMapper.delete(new LambdaQueryWrapper<KGEdge>().eq(KGEdge::getProjectId, pid));
 
         // 1. 为每个词条创建节点
         List<KGNode> nodes = new ArrayList<>();
@@ -298,7 +320,7 @@ public class KGService {
             communityCounter++;
         }
 
-        // 2. 基于共享关键词创建边（批量插入）
+        // 2. 基于共享关键词创建边
         List<KGEdge> allEdges = new ArrayList<>();
         for (int i = 0; i < entries.size(); i++) {
             Set<String> kw1 = parseKeywords(entries.get(i).getKeywords());
@@ -318,9 +340,131 @@ public class KGService {
                 }
             }
         }
+
+        // 2.1 基于 wiki [[wikilink]] 语法生成 direct_link 边
+        Map<String, Long> titleToNodeId = new HashMap<>();
+        for (KGNode node : nodes) {
+            if (node.getLabel() != null) {
+                titleToNodeId.put(node.getLabel(), node.getId());
+            }
+        }
+        for (int i = 0; i < entries.size(); i++) {
+            KnowledgeEntry entry = entries.get(i);
+            KGNode sourceNode = nodes.get(i);
+            Set<String> rawLinks = extractWikilinks(entry.getContent());
+            for (String linkTarget : rawLinks) {
+                Long resolvedId = resolveLinkTarget(linkTarget, titleToNodeId);
+                if (resolvedId != null && !resolvedId.equals(sourceNode.getId())) {
+                    KGEdge edge = new KGEdge();
+                    edge.setSourceId(sourceNode.getId());
+                    edge.setTargetId(resolvedId);
+                    edge.setEdgeType("direct_link");
+                    edge.setWeight(1.0);
+                    edge.setProjectId(pid);
+                    allEdges.add(edge);
+                }
+            }
+        }
+
+        // 2.2 基于共同文档/来源生成 source_overlap 边
+        for (int i = 0; i < entries.size(); i++) {
+            KnowledgeEntry entryI = entries.get(i);
+            for (int j = i + 1; j < entries.size(); j++) {
+                KnowledgeEntry entryJ = entries.get(j);
+                
+                boolean sameDocId = entryI.getDocumentId() != null && entryI.getDocumentId().equals(entryJ.getDocumentId());
+                boolean sameSourceName = entryI.getSourceName() != null && !entryI.getSourceName().isEmpty() 
+                        && entryI.getSourceName().equals(entryJ.getSourceName());
+                        
+                if (sameDocId || sameSourceName) {
+                    KGEdge edge = new KGEdge();
+                    edge.setSourceId(nodes.get(i).getId());
+                    edge.setTargetId(nodes.get(j).getId());
+                    edge.setEdgeType("source_overlap");
+                    edge.setWeight(1.0);
+                    edge.setProjectId(pid);
+                    allEdges.add(edge);
+                }
+            }
+        }
+
         batchInsertEdges(allEdges);
 
+        // 3. 调用 Sidecar 计算真实的社区划分 (Louvain / Union-Find)
+        try {
+            List<Map<String, Object>> nodeDataList = new ArrayList<>();
+            for (KGNode node : nodes) {
+                Map<String, Object> nd = new HashMap<>();
+                nd.put("id", String.valueOf(node.getId()));
+                nd.put("label", node.getLabel());
+                nodeDataList.add(nd);
+            }
+            List<Map<String, Object>> edgeDataList = new ArrayList<>();
+            for (KGEdge edge : allEdges) {
+                Map<String, Object> ed = new HashMap<>();
+                ed.put("source", String.valueOf(edge.getSourceId()));
+                ed.put("target", String.valueOf(edge.getTargetId()));
+                edgeDataList.add(ed);
+            }
+            Map<String, Object> graphInput = new HashMap<>();
+            graphInput.put("nodes", nodeDataList);
+            graphInput.put("edges", edgeDataList);
+            
+            String jsonInput = jsonMapper.writeValueAsString(graphInput);
+            String jsonOutput = kgComputeClient.computeCommunities(jsonInput);
+            
+            com.fasterxml.jackson.databind.JsonNode root = jsonMapper.readTree(jsonOutput);
+            if (root.has("communities")) {
+                com.fasterxml.jackson.databind.JsonNode comms = root.get("communities");
+                for (int cIdx = 0; cIdx < comms.size(); cIdx++) {
+                    com.fasterxml.jackson.databind.JsonNode comm = comms.get(cIdx);
+                    for (int nIdx = 0; nIdx < comm.size(); nIdx++) {
+                        long nodeId = Long.parseLong(comm.get(nIdx).asText());
+                        for (KGNode node : nodes) {
+                            if (node.getId() == nodeId) {
+                                node.setCommunityId(cIdx);
+                                kgNodeMapper.updateById(node);
+                                break;
+                            }
+                        }
+                    }
+                }
+                log.info("Sidecar 社区划分计算完成，包含 {} 个社区", comms.size());
+            }
+        } catch (Exception e) {
+            log.warn("Sidecar 计算社区失败，回退到简单分组: {}", e.getMessage());
+            for (int k = 0; k < nodes.size(); k++) {
+                KGNode node = nodes.get(k);
+                node.setCommunityId(k % 3);
+                kgNodeMapper.updateById(node);
+            }
+        }
+
         return nodes;
+    }
+
+    private Set<String> extractWikilinks(String content) {
+        if (content == null || content.isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<String> links = new HashSet<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\[\\[([^\\]|]+?)(?:\\|[^\\]]+?)?\\]\\]").matcher(content);
+        while (m.find()) {
+            links.add(m.group(1).trim());
+        }
+        return links;
+    }
+
+    private Long resolveLinkTarget(String link, Map<String, Long> titleToIdMap) {
+        if (titleToIdMap.containsKey(link)) return titleToIdMap.get(link);
+        String normalized = link.toLowerCase().replaceAll("\\s+", "-");
+        for (Map.Entry<String, Long> entry : titleToIdMap.entrySet()) {
+            String keyLower = entry.getKey().toLowerCase();
+            if (keyLower.equals(link.toLowerCase()) || keyLower.replaceAll("\\s+", "-").equals(normalized)) {
+                return entry.getValue();
+            }
+        }
+        return null;
     }
 
     private Set<String> parseKeywords(String keywords) {

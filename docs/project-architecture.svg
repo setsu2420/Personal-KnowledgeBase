@@ -84,7 +84,7 @@
     <rect x="60" y="248" width="170" height="100" rx="8" fill="rgba(255,255,255,0.18)" stroke="rgba(255,255,255,0.4)" stroke-width="1" filter="url(#shadowLight)"/>
     <text x="145" y="275" text-anchor="middle" font-size="14" font-weight="bold" fill="white">知识库管理</text>
     <text x="145" y="297" text-anchor="middle" font-size="11" fill="rgba(255,255,255,0.85)">研究报告 · 动态信息</text>
-    <text x="145" y="315" text-anchor="middle" font-size="11" fill="rgba(255,255,255,0.85)">图书库 · 图表库</text>
+    <text x="145" y="315" text-anchor="middle" font-size="11" fill="rgba(255,255,255,0.85)">译丛译著库 · 图表库</text>
     <text x="145" y="333" text-anchor="middle" font-size="11" fill="rgba(255,255,255,0.85)">文档上传与管理</text>
 
     <rect x="245" y="248" width="170" height="100" rx="8" fill="rgba(255,255,255,0.18)" stroke="rgba(255,255,255,0.4)" stroke-width="1" filter="url(#shadowLight)"/>

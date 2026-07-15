@@ -35,18 +35,41 @@
     </el-card>
 
     <!-- URL上传对话框 -->
-    <el-dialog v-model="showUrlDialog" title="添加网页/博客URL" width="500px">
-      <el-form :model="urlForm" label-width="80px">
+    <el-dialog v-model="showUrlDialog" title="添加网页/博客URL" width="520px">
+      <el-form :model="urlForm" label-width="90px">
         <el-form-item label="URL">
-          <el-input v-model="urlForm.url" placeholder="https://example.com/blog/article" />
+          <el-input v-model="urlForm.url" placeholder="https://example.com/blog/article" @paste="onUrlPaste" />
         </el-form-item>
         <el-form-item label="标题">
           <el-input v-model="urlForm.title" placeholder="可选：自定义标题" />
+        </el-form-item>
+        <el-form-item label="提取模式">
+          <el-switch
+            v-model="urlForm.useTwoStep"
+            active-text="两步推理（更准·较慢）"
+            inactive-text="直接抽取（标准·较快）"
+            style="--el-switch-on-color: #7c3aed;"
+          />
+          <div style="color: #909399; font-size: 12px; margin-top: 4px;">
+            {{ urlForm.useTwoStep ? '先分析·再抽取，适合复杂文章' : '一步抽取，适合常规文章' }}
+          </div>
         </el-form-item>
         <el-form-item label="来源说明">
           <el-input v-model="urlForm.sourceOrigin" placeholder="可选" clearable />
         </el-form-item>
       </el-form>
+
+      <!-- 抓取结果元数据显示 -->
+      <div v-if="scrapeMeta" class="scrape-meta">
+        <div class="meta-title">📋 网页信息</div>
+        <div class="meta-grid">
+          <div class="meta-item" v-if="scrapeMeta.author"><span class="meta-label">作者</span><span class="meta-value">{{ scrapeMeta.author }}</span></div>
+          <div class="meta-item" v-if="scrapeMeta.date"><span class="meta-label">日期</span><span class="meta-value">{{ scrapeMeta.date }}</span></div>
+          <div class="meta-item"><span class="meta-label">正文长度</span><span class="meta-value">{{ scrapeMeta.content_length?.toLocaleString() }} 字符</span></div>
+          <div class="meta-item"><span class="meta-label">入库方式</span><span class="meta-value"><el-tag size="small" :type="scrapeMeta.ingest_mode === 'two-step-cot' ? 'warning' : 'primary'">{{ scrapeMeta.ingest_mode }}</el-tag></span></div>
+        </div>
+      </div>
+
       <template #footer>
         <el-button @click="showUrlDialog = false">取消</el-button>
         <el-button type="primary" @click="handleUrlUpload" :loading="urlUploading">抓取并入库</el-button>
@@ -87,8 +110,9 @@ const showUpload = ref(false)
 const urlUploading = ref(false)
 const uploading = ref(false)
 const fileList = ref<UploadFile[]>([])
-const urlForm = reactive({ url: '', title: '', sourceOrigin: '' })
+const urlForm = reactive({ url: '', title: '', sourceOrigin: '', useTwoStep: false })
 const uploadForm = reactive({ sourceOrigin: '' })
+const scrapeMeta = ref<any>(null)
 
 async function loadData() {
   loading.value = true
@@ -105,23 +129,41 @@ async function handleUrlUpload() {
     return
   }
   urlUploading.value = true
+  scrapeMeta.value = null
   try {
     const res = await uploadFromUrl({
       url: urlForm.url,
       title: urlForm.title || undefined,
       docType: 'dynamic',
       sourceOrigin: urlForm.sourceOrigin || undefined,
+      useTwoStep: urlForm.useTwoStep || undefined,
     })
-    ElMessage.success(res.data.message || 'URL已抓取入库')
+    const data = res.data || {}
+    // 显示元数据摘要
+    if (data.metadata) {
+      scrapeMeta.value = data.metadata
+    }
+    ElMessage.success({
+      message: data.message || 'URL已抓取入库',
+      type: 'success',
+      duration: 4000,
+    })
     showUrlDialog.value = false
     urlForm.url = ''
     urlForm.title = ''
     urlForm.sourceOrigin = ''
+    urlForm.useTwoStep = false
+    scrapeMeta.value = null
     loadData()
   } catch (e: any) {
     ElMessage.error('抓取失败: ' + (e.response?.data?.message || e.message || ''))
   }
   urlUploading.value = false
+}
+
+// 粘贴URL时自动重置元数据
+function onUrlPaste() {
+  scrapeMeta.value = null
 }
 
 function handleFileChange(_file: UploadFile, fileListNew: UploadFile[]) {
@@ -194,4 +236,38 @@ onMounted(loadData)
 
 <style scoped>
 .info-dynamic-page { padding: 0; }
+
+.scrape-meta {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--el-fill-color-light, #f5f7fa);
+  border-radius: 8px;
+  border: 1px solid var(--el-border-color-lighter, #ebeef5);
+}
+.meta-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 8px;
+}
+.meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+}
+.meta-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+.meta-label {
+  color: var(--el-text-color-placeholder);
+  white-space: nowrap;
+}
+.meta-value {
+  color: var(--el-text-color-regular);
+  font-weight: 500;
+  text-align: right;
+}
 </style>

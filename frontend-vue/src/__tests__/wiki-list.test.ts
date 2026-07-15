@@ -69,16 +69,16 @@ describe('词条百科紧凑列表测试', () => {
 })
 
 describe('库命名和预览一致性测试', () => {
-  it('步骤5: 验证图书库名称应为图书库，不再使用旧译丛译著库名称', () => {
-    console.log('=== 测试: 图书库命名一致性 ===')
-    console.log('测试场景: 资料库标题应统一为“图书库”')
+  it('步骤5: 验证译丛译著库名称应为译丛译著库，不再使用旧图书库名称', () => {
+    console.log('=== 测试: 译丛译著库命名一致性 ===')
+    console.log('测试场景: 资料库标题应统一为"译丛译著库"')
 
     const translationLabel = getLibraryLabel('translation')
 
     console.log('translation 标题:', translationLabel)
-    expect(translationLabel).toBe('图书库')
-    expect(translationLabel).not.toContain('译丛译著')
-    console.log('测试结果: PASS - 图书库命名统一')
+    expect(translationLabel).toBe('译丛译著库')
+    expect(translationLabel).not.toContain('图书库')
+    console.log('测试结果: PASS - 译丛译著库命名统一')
   })
 })
 

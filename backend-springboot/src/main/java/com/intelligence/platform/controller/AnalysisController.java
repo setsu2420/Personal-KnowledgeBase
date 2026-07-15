@@ -49,9 +49,13 @@ public class AnalysisController {
 
     @GetMapping("/stats")
     public Map<String, Object> analysisStats() {
+        Long projectId = projectContext.getCurrentProjectId();
+        LambdaQueryWrapper<AnalysisReport> wrapper = new LambdaQueryWrapper<>();
+        if (projectId != null) wrapper.eq(AnalysisReport::getProjectId, projectId);
+        
         Map<String, Object> stats = new HashMap<>();
-        long total = analysisReportMapper.selectCount(null);
-        List<AnalysisReport> all = analysisReportMapper.selectList(null);
+        long total = analysisReportMapper.selectCount(wrapper);
+        List<AnalysisReport> all = analysisReportMapper.selectList(wrapper);
         Map<String, Long> byType = all.stream()
                 .collect(Collectors.groupingBy(AnalysisReport::getAnalysisType, Collectors.counting()));
         stats.put("total", total);
@@ -61,7 +65,9 @@ public class AnalysisController {
 
     @GetMapping("/{id}")
     public AnalysisReport getAnalysis(@PathVariable Long id) {
-        return analysisReportMapper.selectById(id);
+        AnalysisReport report = analysisReportMapper.selectById(id);
+        if (report != null) projectContext.validateProjectAccess(report.getProjectId(), "分析报告");
+        return report;
     }
 
     @PostMapping("/")
@@ -72,6 +78,8 @@ public class AnalysisController {
 
     @DeleteMapping("/{id}")
     public Map<String, Object> deleteAnalysis(@PathVariable Long id) {
+        AnalysisReport report = analysisReportMapper.selectById(id);
+        if (report != null) projectContext.validateProjectAccess(report.getProjectId(), "分析报告");
         analysisReportMapper.deleteById(id);
         return Map.of("message", "删除成功");
     }

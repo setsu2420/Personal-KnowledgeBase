@@ -48,9 +48,13 @@ public class RiskController {
 
     @GetMapping("/stats")
     public Map<String, Object> riskStats() {
+        Long projectId = projectContext.getCurrentProjectId();
+        LambdaQueryWrapper<RiskAlert> wrapper = new LambdaQueryWrapper<>();
+        if (projectId != null) wrapper.eq(RiskAlert::getProjectId, projectId);
+        
         Map<String, Object> stats = new HashMap<>();
-        long total = riskAlertMapper.selectCount(null);
-        List<RiskAlert> all = riskAlertMapper.selectList(null);
+        long total = riskAlertMapper.selectCount(wrapper);
+        List<RiskAlert> all = riskAlertMapper.selectList(wrapper);
         Map<String, Long> bySeverity = all.stream()
                 .collect(Collectors.groupingBy(RiskAlert::getSeverity, Collectors.counting()));
         stats.put("total", total);
@@ -73,11 +77,15 @@ public class RiskController {
 
     @GetMapping("/{id}")
     public Result<?> getRiskAlert(@PathVariable Long id) {
-        return Result.ok(riskAlertMapper.selectById(id));
+        RiskAlert alert = riskAlertMapper.selectById(id);
+        if (alert != null) projectContext.validateProjectAccess(alert.getProjectId(), "风险预警");
+        return Result.ok(alert);
     }
 
     @DeleteMapping("/{id}")
     public Map<String, Object> deleteRisk(@PathVariable Long id) {
+        RiskAlert alert = riskAlertMapper.selectById(id);
+        if (alert != null) projectContext.validateProjectAccess(alert.getProjectId(), "风险预警");
         riskAlertMapper.deleteById(id);
         return Map.of("message", "删除成功");
     }

@@ -82,6 +82,44 @@ public class VectorSearchService {
         index = new VectorIndex(indexPath);
         indexReady = true;
         log.info("向量搜索服务初始化完成，索引大小: {}", index.size());
+
+        // 异步检查并清理已被从数据库删除的陈旧脏数据词条，保证向量索引与数据库的强一致性
+        java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                Thread.sleep(3000); // 等待系统完全就绪后执行
+                cleanStaleIndexEntries();
+            } catch (Exception e) {
+                log.warn("执行向量索引无效条目清理时出现异常: {}", e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * 清理向量索引中存在，但在数据库中已经被物理删除的词条。
+     * 避免了手动/自动同步时 expensive embedding API 调用，且保障了数据一致性。
+     */
+    private void cleanStaleIndexEntries() {
+        if (index == null || index.size() == 0) return;
+        log.info("开始检查并清理向量索引中的无效/已删除词条...");
+        int removedCount = 0;
+        List<Long> allIds = index.getAllIds();
+        for (Long id : allIds) {
+            try {
+                if (knowledgeEntryMapper.selectById(id) == null) {
+                    index.remove(id);
+                    removedCount++;
+                    log.info("已将无效/已删除的词条（ID: {}）从内存向量索引中清理", id);
+                }
+            } catch (Exception e) {
+                log.warn("检查词条 ID: {} 状态失败: {}", id, e.getMessage());
+            }
+        }
+        if (removedCount > 0) {
+            index.saveToDisk();
+            log.info("向量索引清理成功！共移除 {} 个已被删除的词条，当前有效索引大小: {}", removedCount, index.size());
+        } else {
+            log.info("向量索引状态良好，未检测到无效/已删除词条。");
+        }
     }
 
     @PreDestroy
@@ -245,9 +283,16 @@ public class VectorSearchService {
         // 直接获取前 topK 个符合过滤条件的匹配项（避免 post-filtering 导致结果数量骤降甚至归零）
         List<VectorIndex.SearchResult> results = index.search(queryVector, topK, filter);
 
-        // 应用阈值过滤
+        // 应用阈值过滤并确保在 MySQL 数据库中仍然存在该实体记录（防止已删除的幽灵/脏数据条目被返回）
         List<VectorIndex.SearchResult> filtered = results.stream()
                 .filter(r -> r.score() >= threshold)
+                .filter(r -> {
+                    try {
+                        return knowledgeEntryMapper.selectById(r.id()) != null;
+                    } catch (Exception e) {
+                        return false;
+                    }
+                })
                 .toList();
 
         log.info("向量检索 [{}] - Pre-filtering 后找到: {} 个, 相似度阈值过滤(>={})后返回: {} 个", 
@@ -331,6 +376,7 @@ public class VectorSearchService {
      * 同步重建索引（内部方法）
      */
     private int rebuildIndexSync() {
+        index.clear(); // 清空内存中的旧索引，防止已在数据库中删除的脏数据残留
         List<KnowledgeEntry> entries = knowledgeEntryMapper.selectList(
                 new LambdaQueryWrapper<KnowledgeEntry>()
                         .in(KnowledgeEntry::getStatus, "approved", "pending"));

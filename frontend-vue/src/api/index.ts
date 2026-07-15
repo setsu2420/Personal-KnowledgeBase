@@ -133,8 +133,8 @@ export const testSearchConfig = (query?: string) => api.post('/search-config/tes
 export const uploadFile = (formData: FormData, url: string = '/upload/') => api.post(url, formData, {
   timeout: 120000, // 2分钟超时，适合大文件上传
 })
-export const uploadFromUrl = (data: { url: string; title?: string; categoryL1?: string; docType?: string; sourceOrigin?: string }) =>
-  api.post('/upload/from-url', null, { params: data, timeout: 120000 })
+export const uploadFromUrl = (data: { url: string; title?: string; categoryL1?: string; docType?: string; sourceOrigin?: string; useTwoStep?: boolean }) =>
+  api.post('/upload/from-url', null, { params: data, timeout: 180000 })
 export const checkFileHash = (formData: FormData) => api.post('/upload/check-hash', formData, {
   timeout: 30000,
 })
@@ -193,6 +193,7 @@ export const askQuestion = (data: { question: string; sessionId?: string }) =>
 export function askQuestionStream(
   data: { question: string; sessionId?: string },
   onMeta: (meta: any) => void,
+  onThinking: (text: string) => void,
   onDelta: (text: string) => void,
   onDone: (result: { answer: string; confidence: number; sources?: Array<any>; tables?: Array<any>; images?: Array<any> }) => void,
   onError?: (error: string) => void
@@ -255,8 +256,10 @@ export function askQuestionStream(
               // 优先使用事件类型分发
               if (currentEvent === 'meta' || eventData.sessionId !== undefined) {
                 onMeta(eventData)
-              } else if (currentEvent === 'delta' || eventData.text !== undefined) {
-                onDelta(eventData.text)
+              } else if (currentEvent === 'thinking') {
+                onThinking(eventData.text || '')
+              } else if (currentEvent === 'delta') {
+                onDelta(eventData.text || '')
               } else if (currentEvent === 'done' || eventData.answer !== undefined) {
                 onDone(eventData)
               } else if (currentEvent === 'error' || eventData.message !== undefined) {

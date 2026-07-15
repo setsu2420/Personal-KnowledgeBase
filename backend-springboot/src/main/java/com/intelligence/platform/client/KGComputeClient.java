@@ -12,7 +12,9 @@ public class KGComputeClient {
     private final HttpClient client = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(10))
         .build();
-    private final String baseUrl = "http://localhost:8101";
+        
+    @org.springframework.beans.factory.annotation.Value("${kg.compute.url:http://localhost:8101}")
+    private String baseUrl;
 
     public String computeCommunities(String json) throws Exception {
         return post("/compute/communities", json);

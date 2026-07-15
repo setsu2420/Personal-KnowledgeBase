@@ -52,7 +52,7 @@ check_dependencies() {
 
     local has_error=0
 
-    # Java 17+
+    # Java 21+ (Spring Boot 4.1 要求)
     if command -v java &>/dev/null; then
         local java_ver
         java_ver=$(java -version 2>&1 | head -1 | sed 's/.*"\(.*\)".*/\1/')
@@ -62,14 +62,14 @@ check_dependencies() {
             # "1.8.0" 格式 -> 取第二个数字
             major=$(echo "$java_ver" | cut -d. -f2)
         fi
-        if [ -n "$major" ] && [ "$major" -ge 17 ]; then
+        if [ -n "$major" ] && [ "$major" -ge 21 ]; then
             print_success "Java: $java_ver"
         else
-            print_error "Java 版本过低或无法识别: 需要 17+, 当前为 ${java_ver:-未知}"
+            print_error "Java 版本过低或无法识别: 需要 21+, 当前为 ${java_ver:-未知}"
             has_error=1
         fi
     else
-        print_error "未检测到 Java 环境，请安装 JDK 17+"
+        print_error "未检测到 Java 环境，请安装 JDK 21+"
         has_error=1
     fi
 
@@ -138,6 +138,31 @@ load_env() {
     echo ""
 }
 
+# ---- 启动图谱计算服务 ----
+start_kg_compute() {
+    print_info "启动 图谱计算服务 (kg-compute on 8101)..."
+    cd "$SCRIPT_DIR/kg-compute"
+    if [ ! -f "target/release/kg-compute" ]; then
+        if command -v cargo &>/dev/null; then
+            print_info "正在编译 kg-compute Rust 项目..."
+            cargo build --release -q
+        else
+            print_warning "未检测到 cargo 命令，无法编译 kg-compute。图谱社区计算将降级运行。"
+            cd "$SCRIPT_DIR"
+            return 0
+        fi
+    fi
+    if [ -f "target/release/kg-compute" ]; then
+        ./target/release/kg-compute > /tmp/kg-compute.log 2>&1 &
+        KG_COMPUTE_PID=$!
+        PIDS+=($KG_COMPUTE_PID)
+        print_success "图谱计算服务已启动 (PID: $KG_COMPUTE_PID)"
+    else
+        print_warning "图谱计算服务编译失败，降级运行。"
+    fi
+    cd "$SCRIPT_DIR"
+}
+
 # ---- 启动后端 ----
 start_backend() {
     print_info "启动 Spring Boot 后端 (端口: $BACKEND_PORT)..."
@@ -149,9 +174,18 @@ start_backend() {
         BACKEND_PID=$!
         print_info "后端 PID: $BACKEND_PID (使用已构建 jar)"
     elif [ -f "./mvnw" ]; then
-        ./mvnw spring-boot:run -q > /tmp/backend.log 2>&1 &
-        BACKEND_PID=$!
-        print_info "后端 PID: $BACKEND_PID (使用 mvnw)"
+        print_info "未检测到已构建的 backend.jar，正在使用 mvnw 打包..."
+        ./mvnw package -DskipTests -q
+        if [ -f "$BACKEND_JAR" ]; then
+            java -jar "$BACKEND_JAR" > /tmp/backend.log 2>&1 &
+            BACKEND_PID=$!
+            print_success "后端构建成功并启动 (PID: $BACKEND_PID)"
+        else
+            print_warning "打包失败，尝试通过 mvnw 直接运行..."
+            ./mvnw spring-boot:run -q > /tmp/backend.log 2>&1 &
+            BACKEND_PID=$!
+            print_info "后端 PID: $BACKEND_PID (使用 mvnw)"
+        fi
     else
         print_error "未找到后端构建产物 (target/backend.jar) 或 mvnw"
         exit 1
@@ -184,7 +218,11 @@ start_backend() {
 start_frontend() {
     print_info "启动 Vue 前端..."
     cd "$FRONTEND_DIR"
-    npx vite --host > /tmp/frontend.log 2>&1 &
+    if [ ! -d "node_modules" ]; then
+        print_warning "未找到 node_modules，正在安装前端依赖 (npm install)..."
+        npm install
+    fi
+    npm run dev -- --host > /tmp/frontend.log 2>&1 &
     FRONTEND_PID=$!
     PIDS+=($FRONTEND_PID)
     cd "$SCRIPT_DIR"
@@ -231,17 +269,23 @@ load_env
 # 按模式启动
 case "$MODE" in
     web)
+        start_kg_compute
+        echo ""
         start_backend
         echo ""
         start_frontend
         ;;
     dev)
+        start_kg_compute
+        echo ""
         start_backend
         echo ""
         note_parser
         start_frontend
         ;;
     prod)
+        start_kg_compute
+        echo ""
         start_backend
         ;;
 esac
@@ -260,21 +304,24 @@ case "$MODE" in
     web)
         echo -e "  ${GREEN}◆${NC} 前端 (Vue):      http://localhost:5173"
         echo -e "  ${GREEN}◆${NC} 后端 (Spring):   http://localhost:$BACKEND_PORT"
+        echo -e "  ${GREEN}◆${NC} 图谱计算服务:    http://localhost:8101"
         echo -e "  ${GREEN}◆${NC} 健康检查:        http://localhost:$BACKEND_PORT/api/health"
         ;;
     dev)
         echo -e "  ${GREEN}◆${NC} 前端 (Vue):      http://localhost:5173"
         echo -e "  ${GREEN}◆${NC} 后端 (Spring):   http://localhost:$BACKEND_PORT"
+        echo -e "  ${GREEN}◆${NC} 图谱计算服务:    http://localhost:8101"
         echo -e "  ${GREEN}◆${NC} 解析服务(手动):  http://localhost:8100"
         echo -e "  ${GREEN}◆${NC} 健康检查:        http://localhost:$BACKEND_PORT/api/health"
         ;;
     prod)
         echo -e "  ${GREEN}◆${NC} 后端 (Spring):   http://localhost:$BACKEND_PORT"
+        echo -e "  ${GREEN}◆${NC} 图谱计算服务:    http://localhost:8101"
         echo -e "  ${GREEN}◆${NC} 健康检查:        http://localhost:$BACKEND_PORT/api/health"
         ;;
 esac
 echo ""
-echo -e "  ${YELLOW}日志${NC}: /tmp/backend.log  /tmp/frontend.log"
+echo -e "  ${YELLOW}日志${NC}: /tmp/backend.log  /tmp/frontend.log  /tmp/kg-compute.log"
 echo -e "  ${YELLOW}按 Ctrl+C 停止所有服务${NC}"
 echo ""
 

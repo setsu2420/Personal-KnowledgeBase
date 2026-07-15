@@ -86,7 +86,7 @@ sleep 10
 
 echo "   检查后端服务..."
 for i in {1..30}; do
-    if curl -s http://localhost:8080/actuator/health > /dev/null 2>&1; then
+    if curl -s http://localhost:8080/api/health > /dev/null 2>&1; then
         echo "   ✓ 后端服务已就绪"
         break
     fi
@@ -122,7 +122,7 @@ echo "    停止服务:   ${COMPOSE_CMD} down"
 echo "    重启服务:   ${COMPOSE_CMD} restart"
 echo "    查看状态:   ${COMPOSE_CMD} ps"
 echo ""
-echo "  详细说明请查看: DELIVERY-GUIDE.md"
+echo "  详细说明请查看: DEPLOYMENT.md"
 echo ""
 ${COMPOSE_CMD} ps
 echo ""

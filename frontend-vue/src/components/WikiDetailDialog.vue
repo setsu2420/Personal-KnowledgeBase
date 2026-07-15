@@ -90,7 +90,7 @@
         <!-- 1. 图片类型 -->
         <template v-if="entry.entryType === 'image'">
           <div class="dialog-image-box">
-            <img :src="getMediaUrl(entry.mediaPath || '')" class="detail-image" alt="original-media" />
+            <img :src="getMediaUrl(entry.mediaPath || '')" class="detail-image" alt="original-media" loading="lazy" decoding="async" />
           </div>
           <div class="image-caption-text" v-if="entry.content">
             {{ entry.content }}
@@ -142,11 +142,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { Calendar, PriceTag, Collection, Link } from '@element-plus/icons-vue'
 import { updateTableMarkdown, getMediaUrl } from '../api'
 import { ElMessage } from 'element-plus'
-import { renderPreviewMarkdown } from '../utils/previewFormatting'
+import { renderPreviewMarkdown, runMermaid } from '../utils/previewFormatting'
 
 interface KnowledgeEntry {
   id: number
@@ -191,6 +191,33 @@ const dialogVisible = computed({
 const editMode = ref(false)
 const editTableMarkdown = ref('')
 const editSaving = ref(false)
+
+// 监听对话框显示状态，自动渲染 Mermaid 图表
+watch(dialogVisible, async (visible) => {
+  if (visible) {
+    await nextTick()
+    // 延迟等待 DOM 渲染完成后执行 mermaid
+    setTimeout(() => {
+      const container = document.querySelector('.wiki-detail-dialog .el-dialog__body')
+      if (container) {
+        runMermaid(container as Element)
+      }
+    }, 200)
+  }
+})
+
+// 监听编辑预览内容变化
+watch(editTableMarkdown, async () => {
+  if (editMode.value) {
+    await nextTick()
+    setTimeout(() => {
+      const container = document.querySelector('.wiki-detail-dialog .edit-preview-box')
+      if (container) {
+        runMermaid(container as Element)
+      }
+    }, 100)
+  }
+})
 
 function renderMarkdownContent(md: string): string {
   return renderPreviewMarkdown(md)

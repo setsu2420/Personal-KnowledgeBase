@@ -120,7 +120,7 @@
           </template>
           <div class="table-markdown" v-if="item.tableMarkdown" v-html="renderMarkdown(item.tableMarkdown)"></div>
           <div v-else-if="item.mediaPath" style="text-align: center; padding: 16px;">
-            <img :src="getEntryMediaUrl(item)" style="max-width: 100%; max-height: 300px;" />
+            <img :src="getEntryMediaUrl(item)" style="max-width: 100%; max-height: 300px;" loading="lazy" decoding="async" />
             <p style="color: #999; margin-top: 8px;">图片表格（未OCR识别）</p>
           </div>
           <el-empty v-else description="无表格数据" />

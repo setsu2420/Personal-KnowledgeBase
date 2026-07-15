@@ -118,6 +118,7 @@ public class KnowledgeEntryController {
     public KnowledgeEntry get(@PathVariable Long id) {
         KnowledgeEntry entry = knowledgeEntryMapper.selectById(id);
         if (entry != null) {
+            projectContext.validateProjectAccess(entry.getProjectId(), "知识词条");
             validateRelatedEntry(entry);
         }
         return entry;

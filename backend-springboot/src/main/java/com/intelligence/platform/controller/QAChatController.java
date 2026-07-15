@@ -152,11 +152,10 @@ public class QAChatController {
             // 4. 计算置信度
             double confidence = relevantEntries.isEmpty() ? 0.3 : Math.min(0.95, 0.5 + relevantEntries.size() * 0.05);
 
-            // 5. 构建来源列表（带编号，供前端引用面板使用）
+            // 5. 构建来源列表（带编号，供前端引用面板使用，返回所有匹配及扩展来源）
             List<Map<String, Object>> sources = new ArrayList<>();
             int srcIdx = 0;
             for (KnowledgeEntry e : relevantEntries) {
-                if (srcIdx >= 10) break; // 最多10个来源
                 Map<String, Object> src = new LinkedHashMap<>();
                 src.put("index", srcIdx + 1);
                 src.put("entry_id", e.getId());
@@ -261,11 +260,15 @@ public class QAChatController {
                 String systemPrompt = """
                         你是一个专业的智能情报分析助手。请基于以下知识库内容回答用户的问题。
 
+                        思考规则（严格遵守）：
+                        1. 在回答之前，请用 <thinking>...</thinking> XML标签包裹你的推理过程
+                        2. 推理过程应包括：分析问题意图、评估知识库相关度、规划回答结构
+                        3. thinking标签后直接输出正式回答，不要再包裹其他标签
+
                         引用规则（严格遵守）：
                         1. 引用信息时，使用方括号编号标注来源，例如 [1]、[2]
                         2. 不要在正文中写出来源名称或文件名，只用编号
                         3. 不要在回答中嵌入"来源：xxx"等文字
-                        4. 在回答最末尾添加一个隐藏注释，格式为：<!-- cited: 1, 2, 3 -->，列出你引用的所有编号
 
                         回答格式要求：
                         1. 先进行文字分析，引用相关文献
@@ -273,6 +276,7 @@ public class QAChatController {
                         3. 表格必须按顺序编号，格式为 **表01**、**表02**...，放在表格上方作为标题
                         4. 如果有相关图片，说明"参见相关图表"，不要在文字中嵌入图片引用
                         5. 如果知识库中没有相关信息，请诚实说明
+                        6. 如果合适，可以使用 Mermaid 流程图语法绘制架构图或流程图；使用 LaTeX 数学公式（$...$行内，$$...$$块级）表示数学关系
 
                         知识库上下文：
                         """ + context + tableContext;
@@ -287,14 +291,94 @@ public class QAChatController {
                 meta.put("tables", tableResults);
                 emitter.send(SseEmitter.event().name("meta").data(objectMapper.writeValueAsString(meta)));
 
-                // 3. 流式调用 LLM
+                // 3. 流式调用 LLM（支持 thinking 标签解析 + 多轮对话历史）
                 StringBuilder fullAnswer = new StringBuilder();
-                llmService.streamChatWithActive(systemPrompt, question, chunk -> {
+                StringBuilder thinkingBuf = new StringBuilder();
+                StringBuilder pendingBuf = new StringBuilder(); // 用于缓冲跨chunk的标签检测
+                boolean[] inThinking = {false}; // 使用数组以便在 lambda 中修改
+                final String THINK_OPEN = "<thinking>";
+                final String THINK_CLOSE = "</thinking>";
+
+                // 加载对话历史（最近N轮），保留上下文连续性
+                List<Map<String, String>> history = loadConversationHistory(finalSessionId, 5);
+
+                llmService.streamChatWithHistory(systemPrompt, question, history, chunk -> {
                     try {
-                        fullAnswer.append(chunk);
-                        Map<String, String> delta = Map.of("text", chunk);
-                        emitter.send(SseEmitter.event().name("delta")
-                                .data(objectMapper.writeValueAsString(delta)));
+                        String text = chunk;
+                        if (text == null) return;
+
+                        // 将新chunk追加到待处理缓冲区
+                        pendingBuf.append(text);
+
+                        if (!inThinking[0]) {
+                            // 未进入thinking模式：在缓冲区中查找 <thinking> 开始标签
+                            int openIdx = pendingBuf.indexOf(THINK_OPEN);
+                            if (openIdx >= 0) {
+                                // 找到了！<thinking> 之前的内容作为 delta
+                                if (openIdx > 0) {
+                                    String pre = pendingBuf.substring(0, openIdx);
+                                    fullAnswer.append(pre);
+                                    emitter.send(SseEmitter.event().name("delta")
+                                            .data(objectMapper.writeValueAsString(Map.of("text", pre))));
+                                }
+                                // 提取 <thinking> 之后的内容进入 thinking 缓冲
+                                String afterOpen = pendingBuf.substring(openIdx + THINK_OPEN.length());
+                                pendingBuf.setLength(0);
+                                inThinking[0] = true;
+
+                                // afterOpen 中可能已有部分内容（包括可能的 </thinking>）
+                                if (!afterOpen.isEmpty()) {
+                                    thinkingBuf.append(afterOpen);
+                                    // 流式发送 thinking 内容
+                                    emitter.send(SseEmitter.event().name("thinking")
+                                            .data(objectMapper.writeValueAsString(Map.of("text", afterOpen))));
+                                }
+                            } else {
+                                // 未找到完整 <thinking>，检查尾部是否有部分匹配
+                                int safeLen = safeFlushLen(pendingBuf.toString(), THINK_OPEN);
+                                if (safeLen > 0) {
+                                    String safe = pendingBuf.substring(0, safeLen);
+                                    fullAnswer.append(safe);
+                                    emitter.send(SseEmitter.event().name("delta")
+                                            .data(objectMapper.writeValueAsString(Map.of("text", safe))));
+                                    pendingBuf.delete(0, safeLen);
+                                }
+                            }
+                        } else {
+                            // 在thinking模式中：查找 </thinking> 结束标签
+                            String thinkingText = pendingBuf.toString();
+                            int closeIdx = thinkingText.indexOf(THINK_CLOSE);
+                            if (closeIdx >= 0) {
+                                // 找到了结束标签！
+                                String thinkingContent = thinkingText.substring(0, closeIdx);
+                                // 末尾部分已由流式发送过，这里发送完整thinking用于客户端替换
+                                thinkingBuf.append(thinkingContent);
+                                emitter.send(SseEmitter.event().name("thinking")
+                                        .data(objectMapper.writeValueAsString(Map.of("text", thinkingBuf.toString()))));
+                                thinkingBuf.setLength(0);
+                                inThinking[0] = false;
+
+                                // </thinking> 之后的内容作为 delta
+                                String post = thinkingText.substring(closeIdx + THINK_CLOSE.length());
+                                pendingBuf.setLength(0);
+                                if (!post.isEmpty()) {
+                                    pendingBuf.append(post);
+                                    fullAnswer.append(post);
+                                    emitter.send(SseEmitter.event().name("delta")
+                                            .data(objectMapper.writeValueAsString(Map.of("text", post))));
+                                }
+                            } else {
+                                // 未找到完整 </thinking>，检查是否有部分匹配
+                                int safeLen = safeFlushLen(thinkingText, THINK_CLOSE);
+                                if (safeLen > 0) {
+                                    String safe = thinkingText.substring(0, safeLen);
+                                    thinkingBuf.append(safe);
+                                    emitter.send(SseEmitter.event().name("thinking")
+                                            .data(objectMapper.writeValueAsString(Map.of("text", safe))));
+                                    pendingBuf.delete(0, safeLen);
+                                }
+                            }
+                        }
                     } catch (Exception e) {
                         log.warn("发送流式数据失败: {}", e.getMessage());
                     }
@@ -357,7 +441,6 @@ public class QAChatController {
         List<Map<String, Object>> sources = new ArrayList<>();
         int srcIdx = 0;
         for (KnowledgeEntry e : entries) {
-            if (srcIdx >= 10) break;
             Map<String, Object> src = new LinkedHashMap<>();
             src.put("index", srcIdx + 1);
             src.put("entry_id", e.getId());
@@ -451,106 +534,409 @@ public class QAChatController {
      * 检索相关知识词条
      * 优先使用向量搜索（语义相似度），回退到关键词搜索
      */
+    /**
+     * 检索相关知识词条并进行图谱扩展（RRF 混合搜索 + 4-Signal 知识图谱一阶扩展）
+     */
     private List<KnowledgeEntry> searchRelevantEntries(String question, int maxResults) {
         Long projectId = projectContext.getCurrentProjectId();
-        // 优先使用向量搜索（FAISS IndexFlatIP 等价实现）
+        if (projectId == null) {
+            log.warn("Project ID is null in Q&A context. Skipping retrieval.");
+            return Collections.emptyList();
+        }
+
+        // 1. 获取向量搜索候选结果
+        List<VectorIndex.SearchResult> vectorResults = Collections.emptyList();
         try {
-            List<VectorIndex.SearchResult> vectorResults = vectorSearchService.search(question, maxResults);
-            if (!vectorResults.isEmpty()) {
-                log.info("向量搜索命中 {} 条结果", vectorResults.size());
-                // 根据向量搜索结果ID获取完整的知识词条
-                List<Long> ids = vectorResults.stream()
-                        .map(VectorIndex.SearchResult::id)
-                        .toList();
-                if (!ids.isEmpty()) {
-                    List<KnowledgeEntry> entries = knowledgeEntryMapper.selectBatchIds(ids);
-                    // 按项目隔离过滤
-                    if (projectId != null) {
-                        entries = entries.stream()
-                                .filter(e -> projectId.equals(e.getProjectId()))
-                                .collect(Collectors.toList());
-                    }
-                    if (!entries.isEmpty()) {
-                        return entries;
-                    }
-                }
-            }
+            vectorResults = vectorSearchService.search(question, maxResults * 2);
         } catch (Exception e) {
-            log.warn("向量搜索失败，回退到关键词搜索: {}", e.getMessage());
+            log.warn("向量搜索失败，在混合检索中跳过: {}", e.getMessage());
         }
 
-        // 回退：关键词搜索（增强中文混合查询支持）
-        String[] rawKeywords = Arrays.stream(question.split("[\\s,，。？！、；：]+"))
-                .filter(kw -> kw.length() >= 2)
-                .toArray(String[]::new);
+        // 2. 清理查询短语，分词
+        String queryPhrase = question.toLowerCase().trim()
+                .replaceAll("^[^a-zA-Z0-9\\u4e00-\\u9fff]+|[^a-zA-Z0-9\\u4e00-\\u9fff]+$", "");
+        List<String> tokens = tokenizeQuery(question);
 
-        if (rawKeywords.length == 0) {
-            return List.of();
+        // 3. 载入项目的所有已审核/待审核词条，进行关键字评分
+        List<KnowledgeEntry> allEntries = knowledgeEntryMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeEntry>()
+                        .eq(KnowledgeEntry::getProjectId, projectId)
+                        .in(KnowledgeEntry::getStatus, "approved", "pending")
+        );
+
+        Map<Long, Double> keywordScores = new HashMap<>();
+        for (KnowledgeEntry entry : allEntries) {
+            double score = scoreEntryKeyword(entry, tokens, queryPhrase);
+            if (score > 0) {
+                keywordScores.put(entry.getId(), score);
+            }
         }
 
-        // 扩展关键词：对中英文混合查询，额外提取英文/数字部分
-        // 例："什么是OPD" → 添加 "OPD"；"MINILLM是什么" → 添加 "MINILLM"
-        java.util.List<String> expandedKwList = new java.util.ArrayList<>();
-        java.util.regex.Pattern engPattern = java.util.regex.Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{1,}");
-        for (String kw : rawKeywords) {
-            expandedKwList.add(kw);
-            // 提取连续英文/数字部分作为独立关键词
-            java.util.regex.Matcher m = engPattern.matcher(kw);
-            while (m.find()) {
-                String engPart = m.group();
-                if (!engPart.equals(kw) && !expandedKwList.contains(engPart)) {
-                    expandedKwList.add(engPart);
+        // 排序获取关键字排名
+        List<KnowledgeEntry> tokenRankList = allEntries.stream()
+                .filter(e -> keywordScores.containsKey(e.getId()))
+                .sorted((a, b) -> Double.compare(keywordScores.get(b.getId()), keywordScores.get(a.getId())))
+                .collect(Collectors.toList());
+
+        Map<Long, Integer> tokenRanks = new HashMap<>();
+        for (int i = 0; i < tokenRankList.size(); i++) {
+            tokenRanks.put(tokenRankList.get(i).getId(), i + 1);
+        }
+
+        // 获取向量排名
+        Map<Long, Integer> vectorRanks = new HashMap<>();
+        for (int i = 0; i < vectorResults.size(); i++) {
+            vectorRanks.put(vectorResults.get(i).id(), i + 1);
+        }
+
+        // 4. RRF 排名合并
+        double rrfK = 60.0;
+        Map<Long, Double> rrfScores = new HashMap<>();
+        Set<Long> candidateIds = new HashSet<>();
+        candidateIds.addAll(tokenRanks.keySet());
+        candidateIds.addAll(vectorRanks.keySet());
+
+        Map<Long, KnowledgeEntry> entryById = allEntries.stream()
+                .collect(Collectors.toMap(KnowledgeEntry::getId, e -> e));
+
+        List<KnowledgeEntry> searchHits = new ArrayList<>();
+        for (Long id : candidateIds) {
+            KnowledgeEntry entry = entryById.get(id);
+            if (entry == null) {
+                try {
+                    entry = knowledgeEntryMapper.selectById(id);
+                } catch (Exception ignored) {}
+            }
+            if (entry != null) {
+                Integer tRank = tokenRanks.get(id);
+                Integer vRank = vectorRanks.get(id);
+                double rrf = 0.0;
+                if (tRank != null) {
+                    rrf += 1.0 / (rrfK + tRank);
+                }
+                if (vRank != null) {
+                    rrf += 1.0 / (rrfK + vRank);
+                }
+                rrfScores.put(id, rrf);
+                searchHits.add(entry);
+            }
+        }
+
+        // 降序排序并截取前 maxResults 个作为搜索命中
+        searchHits.sort((a, b) -> Double.compare(rrfScores.get(b.getId()), rrfScores.get(a.getId())));
+        List<KnowledgeEntry> topSearchHits = searchHits.stream().limit(maxResults).collect(Collectors.toList());
+
+        if (topSearchHits.isEmpty()) {
+            return topSearchHits;
+        }
+
+        // 5. 4-Signal 知识图谱扩展 (仅针对顶部搜索命中进行一阶扩展)
+        try {
+            Map<Long, RetrievalNode> graph = buildRetrievalGraph(allEntries);
+            Set<Long> searchHitIds = topSearchHits.stream().map(KnowledgeEntry::getId).collect(Collectors.toSet());
+            List<ScoredNode> expansions = new ArrayList<>();
+            Set<Long> expandedIds = new HashSet<>();
+
+            for (KnowledgeEntry seed : topSearchHits) {
+                List<ScoredNode> related = getRelatedNodes(seed.getId(), graph, 3);
+                for (ScoredNode sn : related) {
+                    if (sn.score < 2.0) continue;
+                    if (searchHitIds.contains(sn.node.id)) continue;
+                    if (expandedIds.contains(sn.node.id)) continue;
+                    expandedIds.add(sn.node.id);
+                    expansions.add(sn);
                 }
             }
-            // 提取纯中文部分（移除英文和数字后）
-            String cnPart = kw.replaceAll("[A-Za-z0-9._-]+", "").trim();
-            if (cnPart.length() >= 2 && !cnPart.equals(kw) && !expandedKwList.contains(cnPart)) {
-                expandedKwList.add(cnPart);
-            }
-        }
-        // 去除常见中文疑问前缀/后缀，生成干净的搜索词
-        java.util.List<String> finalKwList = new java.util.ArrayList<>();
-        String[] questionAffixes = {"什么是", "是什么", "如何", "怎么", "为什么", "什么", "怎样", "怎么样"};
-        for (String kw : expandedKwList) {
-            String cleaned = kw;
-            // 移除疑问前缀
-            for (String affix : questionAffixes) {
-                if (cleaned.startsWith(affix) && cleaned.length() > affix.length()) {
-                    cleaned = cleaned.substring(affix.length());
-                }
-                if (cleaned.endsWith(affix) && cleaned.length() > affix.length()) {
-                    cleaned = cleaned.substring(0, cleaned.length() - affix.length());
+
+            // 按图谱关联度降序排序
+            expansions.sort((a, b) -> Double.compare(b.score, a.score));
+
+            // 将扩展词条（最多 5 个）追加到结果末尾，保证上下文更完整
+            List<KnowledgeEntry> finalResults = new ArrayList<>(topSearchHits);
+            int added = 0;
+            for (ScoredNode exp : expansions) {
+                if (added >= 5) break;
+                KnowledgeEntry entry = entryById.get(exp.node.id);
+                if (entry != null) {
+                    finalResults.add(entry);
+                    added++;
                 }
             }
-            cleaned = cleaned.trim();
-            if (cleaned.length() >= 2 && !finalKwList.contains(cleaned)) {
-                finalKwList.add(cleaned);
-            } else if (!finalKwList.contains(kw)) {
-                finalKwList.add(kw);
-            }
+            log.info("RRF 混合搜索命中 {} 条，图谱扩展 {} 条，总共返回 {} 条词条", 
+                    topSearchHits.size(), added, finalResults.size());
+            return finalResults;
+        } catch (Exception e) {
+            log.warn("图谱检索扩展出现异常，返回原始混合检索结果: {}", e.getMessage(), e);
+            return topSearchHits;
         }
+    }
 
-        String[] keywords = finalKwList.toArray(new String[0]);
-        log.info("关键词搜索 - 原始: {}, 扩展后: {}", 
-                Arrays.toString(rawKeywords), Arrays.toString(keywords));
+    private static final Set<String> STOP_WORDS = new HashSet<>(Arrays.asList(
+            "的", "是", "了", "什么", "在", "有", "和", "与", "对", "从",
+            "the", "is", "a", "an", "what", "how", "are", "was", "were",
+            "do", "does", "did", "be", "been", "being", "have", "has", "had",
+            "it", "its", "in", "on", "at", "to", "for", "of", "with", "by",
+            "this", "that", "these", "those"
+    ));
 
-        LambdaQueryWrapper<KnowledgeEntry> wrapper = new LambdaQueryWrapper<>();
-        if (projectId != null) wrapper.eq(KnowledgeEntry::getProjectId, projectId);
-        wrapper.in(KnowledgeEntry::getStatus, "approved", "pending")
-                .and(w -> {
-                    for (String kw : keywords) {
-                        w.or()
-                                .like(KnowledgeEntry::getTitle, kw)
-                                .or()
-                                .like(KnowledgeEntry::getContent, kw)
-                                .or()
-                                .like(KnowledgeEntry::getKeywords, kw);
+    private List<String> tokenizeQuery(String query) {
+        if (query == null || query.isBlank()) {
+            return Collections.emptyList();
+        }
+        String[] rawTokens = query.toLowerCase()
+                .split("[\\s,，。！？、；：\"\"''（）()\\-_/\\\\·~～…]+");
+        
+        Set<String> tokens = new LinkedHashSet<>();
+        for (String token : rawTokens) {
+            token = token.trim();
+            if (token.length() <= 1 || STOP_WORDS.contains(token)) {
+                continue;
+            }
+            // 检查是否包含 CJK 字符
+            boolean hasCJK = false;
+            for (int i = 0; i < token.length(); i++) {
+                char c = token.charAt(i);
+                if ((c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF)) {
+                    hasCJK = true;
+                    break;
+                }
+            }
+            if (hasCJK && token.length() > 2) {
+                // Bi-gram tokens
+                for (int i = 0; i < token.length() - 1; i++) {
+                    tokens.add(token.substring(i, i + 2));
+                }
+                // Uni-grams
+                for (int i = 0; i < token.length(); i++) {
+                    String ch = String.valueOf(token.charAt(i));
+                    if (!STOP_WORDS.contains(ch)) {
+                        tokens.add(ch);
                     }
-                })
-                .orderByDesc(KnowledgeEntry::getConfidence)
-                .last("LIMIT " + maxResults);
+                }
+                tokens.add(token);
+            } else {
+                tokens.add(token);
+            }
+        }
+        return new ArrayList<>(tokens);
+    }
 
-        return knowledgeEntryMapper.selectList(wrapper);
+    private double scoreEntryKeyword(KnowledgeEntry entry, List<String> tokens, String queryPhrase) {
+        String title = entry.getTitle() != null ? entry.getTitle() : "";
+        String content = entry.getContent() != null ? entry.getContent() : "";
+        String keywords = entry.getKeywords() != null ? entry.getKeywords() : "";
+        
+        String titleLower = title.toLowerCase();
+        String contentLower = content.toLowerCase();
+        String keywordsLower = keywords.toLowerCase();
+        
+        boolean titleHasPhrase = !queryPhrase.isEmpty() && titleLower.contains(queryPhrase);
+        long contentPhraseOcc = !queryPhrase.isEmpty() ? countOccurrences(contentLower, queryPhrase) : 0;
+        contentPhraseOcc = Math.min(contentPhraseOcc, 10);
+        
+        long titleTokenScore = tokenMatchScore(titleLower, tokens);
+        long contentTokenScore = tokenMatchScore(contentLower, tokens);
+        long keywordsTokenScore = tokenMatchScore(keywordsLower, tokens);
+        
+        if (!titleHasPhrase && contentPhraseOcc == 0 && titleTokenScore == 0 && contentTokenScore == 0 && keywordsTokenScore == 0) {
+            return 0.0;
+        }
+        
+        return (titleHasPhrase ? 50.0 : 0.0)
+                + contentPhraseOcc * 20.0
+                + titleTokenScore * 5.0
+                + contentTokenScore * 1.0
+                + keywordsTokenScore * 5.0;
+    }
+
+    private long countOccurrences(String haystack, String needle) {
+        if (needle.isEmpty() || haystack.isEmpty()) return 0;
+        long count = 0;
+        int idx = 0;
+        while ((idx = haystack.indexOf(needle, idx)) != -1) {
+            count++;
+            idx += needle.length();
+        }
+        return count;
+    }
+
+    private long tokenMatchScore(String text, List<String> tokens) {
+        long count = 0;
+        for (String token : tokens) {
+            if (text.contains(token)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    public static class RetrievalNode {
+        public Long id;
+        public String title;
+        public String type;
+        public Set<String> sources = new HashSet<>();
+        public Set<Long> outLinks = new HashSet<>();
+        public Set<Long> inLinks = new HashSet<>();
+    }
+
+    public static class ScoredNode implements Comparable<ScoredNode> {
+        public RetrievalNode node;
+        public double score;
+        
+        public ScoredNode(RetrievalNode node, double score) {
+            this.node = node;
+            this.score = score;
+        }
+        
+        @Override
+        public int compareTo(ScoredNode o) {
+            return Double.compare(o.score, this.score);
+        }
+    }
+
+    private Map<Long, RetrievalNode> buildRetrievalGraph(List<KnowledgeEntry> entries) {
+        Map<Long, RetrievalNode> graph = new HashMap<>();
+        Map<String, Long> titleToId = new HashMap<>();
+        
+        for (KnowledgeEntry entry : entries) {
+            RetrievalNode node = new RetrievalNode();
+            node.id = entry.getId();
+            node.title = entry.getTitle();
+            node.type = entry.getEntryType() != null ? entry.getEntryType() : "concept";
+            
+            if (entry.getSourceName() != null && !entry.getSourceName().isEmpty()) {
+                node.sources.add(entry.getSourceName().trim());
+            }
+            if (entry.getSourceOrigin() != null && !entry.getSourceOrigin().isEmpty()) {
+                node.sources.add(entry.getSourceOrigin().trim());
+            }
+            
+            graph.put(node.id, node);
+            if (node.title != null && !node.title.isEmpty()) {
+                titleToId.put(node.title, node.id);
+            }
+        }
+        
+        for (KnowledgeEntry entry : entries) {
+            RetrievalNode sourceNode = graph.get(entry.getId());
+            if (sourceNode == null) continue;
+            
+            Set<String> rawLinks = extractWikilinks(entry.getContent());
+            for (String linkTarget : rawLinks) {
+                Long resolvedId = resolveLinkTarget(linkTarget, titleToId);
+                if (resolvedId != null && !resolvedId.equals(sourceNode.id)) {
+                    sourceNode.outLinks.add(resolvedId);
+                    RetrievalNode targetNode = graph.get(resolvedId);
+                    if (targetNode != null) {
+                        targetNode.inLinks.add(sourceNode.id);
+                    }
+                }
+            }
+        }
+        
+        return graph;
+    }
+
+    private Set<String> extractWikilinks(String content) {
+        if (content == null || content.isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<String> links = new HashSet<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\[\\[([^\\]|]+?)(?:\\|[^\\]]+?)?\\]\\]").matcher(content);
+        while (m.find()) {
+            links.add(m.group(1).trim());
+        }
+        return links;
+    }
+
+    private Long resolveLinkTarget(String link, Map<String, Long> titleToIdMap) {
+        if (titleToIdMap.containsKey(link)) return titleToIdMap.get(link);
+        String normalized = link.toLowerCase().replaceAll("\\s+", "-");
+        for (Map.Entry<String, Long> entry : titleToIdMap.entrySet()) {
+            String keyLower = entry.getKey().toLowerCase();
+            if (keyLower.equals(link.toLowerCase()) || keyLower.replaceAll("\\s+", "-").equals(normalized)) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
+
+    private static final Map<String, Map<String, Double>> TYPE_AFFINITY = new HashMap<>();
+    static {
+        Map<String, Double> entityAff = Map.of("concept", 1.2, "entity", 0.8, "source", 1.0, "synthesis", 1.0, "query", 0.8);
+        Map<String, Double> conceptAff = Map.of("entity", 1.2, "concept", 0.8, "source", 1.0, "synthesis", 1.2, "query", 1.0);
+        Map<String, Double> sourceAff = Map.of("entity", 1.0, "concept", 1.0, "source", 0.5, "query", 0.8, "synthesis", 1.0);
+        Map<String, Double> queryAff = Map.of("concept", 1.0, "entity", 0.8, "synthesis", 1.0, "source", 0.8, "query", 0.5);
+        Map<String, Double> synthesisAff = Map.of("concept", 1.2, "entity", 1.0, "source", 1.0, "query", 1.0, "synthesis", 0.8);
+        
+        TYPE_AFFINITY.put("entity", entityAff);
+        TYPE_AFFINITY.put("concept", conceptAff);
+        TYPE_AFFINITY.put("source", sourceAff);
+        TYPE_AFFINITY.put("query", queryAff);
+        TYPE_AFFINITY.put("synthesis", synthesisAff);
+    }
+
+    private double getTypeAffinity(String typeA, String typeB) {
+        String tA = typeA != null ? typeA.toLowerCase() : "concept";
+        String tB = typeB != null ? typeB.toLowerCase() : "concept";
+        Map<String, Double> affMap = TYPE_AFFINITY.get(tA);
+        if (affMap != null && affMap.containsKey(tB)) {
+            return affMap.get(tB);
+        }
+        return 0.5;
+    }
+
+    private double calculateRelevance(RetrievalNode nodeA, RetrievalNode nodeB, Map<Long, RetrievalNode> graph) {
+        if (nodeA.id.equals(nodeB.id)) return 0.0;
+        
+        double forwardLink = nodeA.outLinks.contains(nodeB.id) ? 1.0 : 0.0;
+        double backwardLink = nodeB.outLinks.contains(nodeA.id) ? 1.0 : 0.0;
+        double directLinkScore = (forwardLink + backwardLink) * 3.0;
+        
+        Set<String> sharedSources = new HashSet<>(nodeA.sources);
+        sharedSources.retainAll(nodeB.sources);
+        double sourceOverlapScore = sharedSources.size() * 4.0;
+        
+        Set<Long> neighborsA = new HashSet<>();
+        neighborsA.addAll(nodeA.outLinks); neighborsA.addAll(nodeA.inLinks);
+        Set<Long> neighborsB = new HashSet<>();
+        neighborsB.addAll(nodeB.outLinks); neighborsB.addAll(nodeB.inLinks);
+        Set<Long> commonNeighbors = new HashSet<>(neighborsA);
+        commonNeighbors.retainAll(neighborsB);
+        
+        double adamicAdar = 0.0;
+        for (Long neighborId : commonNeighbors) {
+            RetrievalNode neighbor = graph.get(neighborId);
+            if (neighbor != null) {
+                int degree = neighbor.outLinks.size() + neighbor.inLinks.size();
+                adamicAdar += 1.0 / Math.log(Math.max(degree, 2.0));
+            }
+        }
+        double commonNeighborScore = adamicAdar * 1.5;
+        
+        double typeAffinityScore = getTypeAffinity(nodeA.type, nodeB.type) * 1.0;
+        
+        return directLinkScore + sourceOverlapScore + commonNeighborScore + typeAffinityScore;
+    }
+
+    private List<ScoredNode> getRelatedNodes(Long nodeId, Map<Long, RetrievalNode> graph, int limit) {
+        RetrievalNode sourceNode = graph.get(nodeId);
+        if (sourceNode == null) return Collections.emptyList();
+        
+        List<ScoredNode> scoredList = new ArrayList<>();
+        for (Map.Entry<Long, RetrievalNode> entry : graph.entrySet()) {
+            if (entry.getKey().equals(nodeId)) continue;
+            double score = calculateRelevance(sourceNode, entry.getValue(), graph);
+            if (score > 0.0) {
+                scoredList.add(new ScoredNode(entry.getValue(), score));
+            }
+        }
+        
+        Collections.sort(scoredList);
+        if (scoredList.size() > limit) {
+            return scoredList.subList(0, limit);
+        }
+        return scoredList;
     }
 
     /**
@@ -698,6 +1084,83 @@ public class QAChatController {
         }
         int deleted = qaRecordMapper.delete(wrapper);
         return Map.of("message", "已删除会话 " + sessionId + "（" + deleted + " 条记录）");
+    }
+
+    /**
+     * 加载对话历史（最近 maxTurns 轮），用于多轮对话上下文
+     */
+    private List<Map<String, String>> loadConversationHistory(String sessionId, int maxTurns) {
+        List<Map<String, String>> history = new ArrayList<>();
+        try {
+            List<QARecord> records = qaRecordMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<QARecord>()
+                    .eq(QARecord::getSessionId, sessionId)
+                    .eq(QARecord::getProjectId, projectContext.getCurrentProjectId())
+                    .orderByDesc(QARecord::getCreatedAt)
+                    .last("LIMIT " + (maxTurns * 2))
+            );
+            java.util.Collections.reverse(records);
+
+            for (QARecord r : records) {
+                if (r.getQuestion() != null && !r.getQuestion().isEmpty()) {
+                    Map<String, String> userMsg = new java.util.LinkedHashMap<>();
+                    userMsg.put("role", "user");
+                    userMsg.put("content", truncateForContext(r.getQuestion(), 2000));
+                    history.add(userMsg);
+                }
+                if (r.getAnswer() != null && !r.getAnswer().isEmpty()) {
+                    Map<String, String> asstMsg = new java.util.LinkedHashMap<>();
+                    asstMsg.put("role", "assistant");
+                    asstMsg.put("content", truncateForContext(r.getAnswer(), 4000));
+                    history.add(asstMsg);
+                }
+            }
+
+            // 只保留最近 maxTurns 条用户消息
+            int userCount = 0;
+            for (int i = history.size() - 1; i >= 0; i--) {
+                if ("user".equals(history.get(i).get("role"))) {
+                    userCount++;
+                    if (userCount > maxTurns) {
+                        history = history.subList(i + 1, history.size());
+                        break;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("加载对话历史失败: {}", e.getMessage());
+        }
+        return history;
+    }
+
+    /**
+     * 截断过长内容，为LLM上下文节省token
+     */
+    private String truncateForContext(String text, int maxLen) {
+        if (text == null || text.length() <= maxLen) return text;
+        return text.substring(0, maxLen) + "...[截断]";
+    }
+
+    /**
+     * 计算可以安全刷新的字符数（不与目标标签产生部分匹配）
+     * 例如：buffer="这是答案<th" 对应 tag="<thinking>"，"<th" 可能是标签前缀，所以 safeLen=4（"这是答案"）
+     * 又如：buffer="这是答案" 不包含 "<" 即 safeLen=4
+     */
+    private int safeFlushLen(String buffer, String tag) {
+        // 找到buffer中最后一个 '<' 的位置
+        int lastOpenBracket = buffer.lastIndexOf('<');
+        if (lastOpenBracket < 0) {
+            // 没有 '<'，全部安全
+            return buffer.length();
+        }
+        // 检查从那个位置开始是否是 tag 的前缀
+        String suffix = buffer.substring(lastOpenBracket);
+        if (tag.startsWith(suffix)) {
+            // suffix 是tag的前缀（如 "<thi" 匹配 "<thinking>"），不能刷新这部分
+            return lastOpenBracket;
+        }
+        // suffix 不是 tag 的前缀（如 "<b>" 或完整的 "</thinking>"），可以全部刷新
+        return lastOpenBracket;
     }
 }
 

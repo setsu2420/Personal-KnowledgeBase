@@ -508,7 +508,7 @@
 [
   { "value": "report", "label": "研究报告库" },
   { "value": "dynamic", "label": "动态信息库" },
-  { "value": "translation", "label": "图书库" },
+  { "value": "translation", "label": "译丛译著库" },
   { "value": "chart", "label": "图表数据库" },
   { "value": "policy", "label": "政策文件库" },
   { "value": "news", "label": "新闻资讯库" }

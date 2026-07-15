@@ -32,6 +32,8 @@ public class DecisionController {
             @RequestParam(defaultValue = "20") int pageSize) {
 
         LambdaQueryWrapper<Decision> wrapper = new LambdaQueryWrapper<>();
+        Long projectId = projectContext.getCurrentProjectId();
+        if (projectId != null) wrapper.eq(Decision::getProjectId, projectId);
         if (decisionType != null && !decisionType.isEmpty()) wrapper.eq(Decision::getDecisionType, decisionType);
         if (category != null && !category.isEmpty()) wrapper.eq(Decision::getCategory, category);
         wrapper.orderByDesc(Decision::getScore).orderByDesc(Decision::getCreatedAt);
@@ -56,11 +58,15 @@ public class DecisionController {
 
     @GetMapping("/{id}")
     public Result<?> getDecision(@PathVariable Long id) {
-        return Result.ok(decisionMapper.selectById(id));
+        Decision decision = decisionMapper.selectById(id);
+        if (decision != null) projectContext.validateProjectAccess(decision.getProjectId(), "决策");
+        return Result.ok(decision);
     }
 
     @DeleteMapping("/{id}")
     public Map<String, Object> deleteDecision(@PathVariable Long id) {
+        Decision decision = decisionMapper.selectById(id);
+        if (decision != null) projectContext.validateProjectAccess(decision.getProjectId(), "决策");
         decisionMapper.deleteById(id);
         return Map.of("message", "删除成功");
     }

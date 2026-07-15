@@ -25,6 +25,18 @@ services:
       retries: 5
       start_period: 30s
 
+  # 图谱计算服务 (Sidecar)
+  kg-compute:
+    build:
+      context: ./kg-compute
+      dockerfile: Dockerfile
+    container_name: intel-platform-kg-compute
+    restart: unless-stopped
+    ports:
+      - "8101:8101"
+    networks:
+      - intel-network
+
   # 后端服务
   backend:
     build:
@@ -38,6 +50,7 @@ services:
       SPRING_DATASOURCE_USERNAME: root
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
       JAVA_OPTS: "-Xms512m -Xmx2g -XX:+UseG1GC"
+      KG_COMPUTE_URL: http://kg-compute:8101
     ports:
       - "8080:8080"
     volumes:
@@ -47,10 +60,12 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      kg-compute:
+        condition: service_started
     networks:
       - intel-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

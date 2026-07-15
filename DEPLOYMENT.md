@@ -30,6 +30,7 @@ docker-compose logs -f
 
 - **前端**: http://localhost
 - **后端API**: http://localhost:8080
+- **图谱计算**: http://localhost:8101
 - **MySQL**: localhost:3306
 
 ### 常用命令
@@ -41,6 +42,7 @@ docker-compose down
 # 重启单个服务
 docker-compose restart backend
 docker-compose restart frontend
+docker-compose restart kg-compute
 
 # 重新构建服务
 docker-compose up -d --build
@@ -67,6 +69,7 @@ MYSQL_ROOT_PASSWORD=your_secure_password
 # 后端配置（可选，会覆盖默认值）
 SPRING_PROFILES_ACTIVE=production
 JAVA_OPTS=-Xms512m -Xmx2g
+KG_COMPUTE_URL=http://kg-compute:8101
 
 # 前端配置（可选）
 VITE_API_BASE_URL=http://localhost:8080
